@@ -1,7 +1,23 @@
 ORBIT · Finanzas
 ================================================================
-Cómo subirla a internet y tenerla como app en el celular.
+Cómo subirla a internet, tenerla como app en el celular y hacer
+que los dos celulares vean los mismos datos.
 Es gratis y no hay que instalar ningún programa.
+
+
+LOS ARCHIVOS
+----------------------------------------------------------------
+     index.html
+     firebase-config.js      <- este se completa a mano (PASO 6)
+     manifest.webmanifest
+     sw.js
+     icon-192.png
+     icon-512.png
+     apple-touch-icon.png
+
+     firestore.rules         <- no se sube a la web: se copia y pega
+                                dentro de Firebase (PASO 6)
+     LEEME.txt               <- esto que estás leyendo
 
 
 PASO 1 · CREAR LA CUENTA (solo la primera vez)
@@ -20,8 +36,7 @@ PASO 2 · CREAR EL REPOSITORIO
 2. En "Repository name" escribí:   finanzas
 3. Dejá marcado "Public".
    (Es necesario para que funcione gratis. Tranquilo: se publica el
-   PROGRAMA, no tus datos. Tus números quedan guardados solo en tu
-   teléfono, nunca se suben a internet.)
+   PROGRAMA, no tus datos.)
 4. Tocá "Create repository".
 
 
@@ -31,17 +46,7 @@ PASO 3 · SUBIR LOS ARCHIVOS
    "uploading an existing file".
 2. Abrí la carpeta ORBIT-app en tu computadora, seleccioná TODOS
    los archivos (Ctrl + E o Ctrl + A) y arrastralos a la ventana
-   del navegador. Son estos 6:
-
-        index.html
-        manifest.webmanifest
-        sw.js
-        icon-192.png
-        icon-512.png
-        apple-touch-icon.png
-
-   (El LEEME.txt no hace falta subirlo, pero tampoco molesta.)
-
+   del navegador.
 3. Abajo tocá el botón verde "Commit changes".
 
 
@@ -73,28 +78,118 @@ IPHONE (tiene que ser con Safari, no con Chrome)
   3. Confirmá con "Agregar".
 
 Listo: queda el ícono en la pantalla de inicio y se abre a pantalla
-completa, sin la barra del navegador, igual que cualquier otra app.
-Hacé lo mismo en el celular del otro usuario.
+completa, sin la barra del navegador. Hacé lo mismo en el otro celular.
+
+
+================================================================
+PASO 6 · QUE LOS DOS CELULARES VEAN LO MISMO
+================================================================
+Sin este paso la app funciona igual, pero cada teléfono lleva sus
+propios números por separado. Esto se hace UNA sola vez, desde la
+computadora, y tarda unos 10 minutos.
+
+6.1 · CREAR EL PROYECTO
+  1. Entrá a  console.firebase.google.com  con tu cuenta de Google.
+  2. Tocá "Crear un proyecto" (o "Add project").
+  3. Ponele de nombre:  orbit-finanzas
+  4. Cuando te pregunte por Google Analytics, DESACTIVALO.
+     No hace falta y es un paso menos.
+  5. Esperá a que termine y tocá "Continuar".
+
+6.2 · PRENDER EL LOGIN POR MAIL
+  1. En el menú de la izquierda: "Compilación" -> "Authentication".
+  2. Tocá "Comenzar".
+  3. En la lista elegí "Correo electrónico/contraseña".
+  4. Prendé el primer interruptor (el de arriba) y tocá "Guardar".
+     El segundo ("vínculo de correo") dejalo apagado.
+
+6.3 · CREAR LA BASE DE DATOS
+  1. En el menú: "Compilación" -> "Firestore Database".
+  2. Tocá "Crear base de datos".
+  3. Elegí la ubicación que te ofrece y tocá "Siguiente".
+  4. Elegí "Comenzar en modo de producción" y tocá "Crear".
+
+6.4 · PEGAR LAS REGLAS DE SEGURIDAD  (no te saltees esto)
+  1. Dentro de Firestore Database, tocá la solapa "Reglas".
+  2. Borrá TODO lo que hay en el recuadro.
+  3. Abrí el archivo  firestore.rules  con el Bloc de notas,
+     copiá todo y pegalo ahí.
+  4. Tocá "Publicar".
+
+  Esto es lo que hace que sus datos sean suyos: sin esto, la base
+  quedaría abierta para cualquiera.
+
+6.5 · COPIAR LA CONFIGURACIÓN A LA APP
+  1. Arriba a la izquierda, al lado de "Descripción general del
+     proyecto", tocá la rueda dentada -> "Configuración del proyecto".
+  2. Bajá hasta "Tus apps" y tocá el ícono  </>  (Web).
+  3. Ponele cualquier apodo (por ejemplo: orbit) y tocá "Registrar app".
+     NO marques "Firebase Hosting".
+  4. Te muestra un bloque de código con algo así:
+
+         const firebaseConfig = {
+           apiKey: "AIzaSy........",
+           authDomain: "orbit-finanzas.firebaseapp.com",
+           projectId: "orbit-finanzas",
+           storageBucket: "orbit-finanzas.appspot.com",
+           messagingSenderId: "123456789012",
+           appId: "1:123456789012:web:abc123def456"
+         };
+
+  5. Abrí  firebase-config.js  con el Bloc de notas y reemplazá cada
+     PEGAR_ACA por el valor que te muestra Firebase, respetando las
+     comillas. Guardá el archivo.
+
+  6. Subí el firebase-config.js corregido a GitHub:
+     Add file -> Upload files -> arrastrar -> Commit changes.
+
+6.6 · ARMAR EL HOGAR (esto ya en los celulares)
+  EN TU CELULAR:
+  1. Abrí la app y esperá a que diga "Ingresar".
+  2. Tocá "Crear hogar".
+  3. Poné tu nombre, tu mail y una contraseña de 6 o más caracteres.
+  4. Andá a Ajustes -> Sincronización. Ahí está el CÓDIGO DEL HOGAR.
+  5. Tocá "Compartir código" y mandáselo por WhatsApp.
+
+  EN EL OTRO CELULAR:
+  6. Abrí la app y tocá "Unirme con código".
+  7. Pegá el código, poné su nombre, su mail y su contraseña.
+  8. Listo. A partir de ahí, lo que carga uno le aparece al otro en
+     un par de segundos.
+
+
+CÓMO SE COMPORTA LA SINCRONIZACIÓN
+----------------------------------------------------------------
+- Se guarda primero en el teléfono. La app abre y funciona igual
+  sin internet; lo cargado se sube solo cuando vuelve la señal.
+- Si los dos cargan cosas distintas, se juntan las dos. No se pisa
+  nada.
+- Si los dos editan EL MISMO movimiento, queda la edición más
+  reciente.
+- Si borrás algo, se borra en los dos y no vuelve a aparecer.
+- En Ajustes -> Sincronización dice "Sincronizado" cuando está todo
+  al día, y "Sin conexión" cuando está esperando señal.
 
 
 PRIMERA VEZ QUE LA ABRÍS
 ----------------------------------------------------------------
-Te pide crear las dos cuentas (nombre, mail y contraseña de cada uno).
 Después de entrar te ofrece armar un PIN de 4 números para no tener
-que escribir la contraseña todos los días.
+que escribir la contraseña todos los días. El PIN es de ese teléfono
+solamente.
 
 
 DOS COSAS IMPORTANTES
 ----------------------------------------------------------------
-1. LOS DATOS SON DE CADA TELÉFONO.
-   Lo que cargues en tu celular no aparece en el otro. Cada uno
-   lleva lo suyo, o eligen un solo teléfono como "el oficial".
+1. LA CONTRASEÑA AHORA ES LA LLAVE DE TODO.
+   Con la sincronización activa, las cuentas viven en Firebase. Si se
+   olvidan la contraseña, se recupera desde "Olvidé mi contraseña" en
+   la pantalla de ingreso (llega un mail).
 
-2. EXPORTÁ EL BACKUP SEGUIDO.
-   Ajustes -> Exportar backup. En el celular te deja mandarlo
-   directo por WhatsApp o guardarlo en Drive. Si se borran los
-   datos del navegador o se pierde el teléfono, sin backup no hay
-   forma de recuperarlos.
+2. EXPORTÁ EL BACKUP SEGUIDO IGUAL.
+   Ajustes -> Exportar backup. La sincronización sirve para compartir,
+   no reemplaza al backup: si alguien borra algo por error, se borra en
+   los dos. En el celular te deja mandarlo directo por WhatsApp o
+   guardarlo en Drive.
 
 
 SI DESPUÉS QUERÉS CAMBIAR ALGO DE LA APP

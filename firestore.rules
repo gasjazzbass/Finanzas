@@ -1,0 +1,64 @@
+rules_version = '2';
+
+/* ============================================================
+   ORBIT · Reglas de seguridad
+   ------------------------------------------------------------
+   Copiá TODO este archivo y pegalo en:
+   Firebase -> Firestore Database -> solapa "Reglas" -> Publicar
+
+   Qué garantizan:
+   - Nadie sin cuenta puede leer ni escribir nada.
+   - Los datos de un hogar sólo los ven los miembros de ese hogar.
+   - Para entrar a un hogar hay que saber su código, y lo único
+     que se puede hacer con el código es agregarse uno mismo:
+     no se puede echar al otro ni tocar sus datos.
+   ============================================================ */
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function logueado() {
+      return request.auth != null;
+    }
+
+    function miembro(hid) {
+      return logueado() &&
+        request.auth.uid in
+          get(/databases/$(database)/documents/hogares/$(hid)).data.miembros;
+    }
+
+    /* Ficha de cada persona: su nombre y a qué hogar pertenece.
+       Sólo la puede leer y escribir ella misma. */
+    match /usuarios/{uid} {
+      allow read, write: if logueado() && request.auth.uid == uid;
+    }
+
+    /* El hogar: la lista de quiénes tienen acceso. */
+    match /hogares/{hid} {
+
+      // Crear un hogar: sólo poniéndote a vos mismo como único miembro.
+      allow create: if logueado()
+        && request.resource.data.miembros == [request.auth.uid];
+
+      // Leer la lista de miembros: sólo los miembros.
+      allow read: if miembro(hid);
+
+      // Unirse con el código: sólo podés agregarte a vos mismo, al final
+      // de la lista, sin sacar a nadie y sin tocar ningún otro campo.
+      // Tope de 4 personas por hogar.
+      allow update: if miembro(hid)
+        || (logueado()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['miembros'])
+            && request.resource.data.miembros == resource.data.miembros.concat([request.auth.uid])
+            && request.resource.data.miembros.size() <= 4);
+
+      // Un hogar no se borra desde la app.
+      allow delete: if false;
+    }
+
+    /* Los datos de plata: movimientos, fijos, deudas, cajas,
+       plazos fijos, tenencias y ajustes. Sólo los miembros. */
+    match /hogares/{hid}/{coleccion}/{documento} {
+      allow read, write: if miembro(hid);
+    }
+  }
+}

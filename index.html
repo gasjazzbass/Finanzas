@@ -313,12 +313,15 @@ main{flex:1;width:100%;max-width:1320px;margin:0 auto;
 
 <div id="modalRoot"></div>
 
+<script src="firebase-config.js"></script>
 <script>
 /* ============================================================
    ORBIT · Finanzas personales y familiares
-   App instalable (PWA). Datos locales de cada dispositivo.
+   App instalable (PWA). Los datos se guardan en el teléfono y,
+   si configurás la sincronización, se comparten con el otro
+   celular del hogar.
    ============================================================ */
-const LS='orbit_fin_v1', SESS='orbit_sess', DEV='orbit_device', THEME='orbit_theme';
+const LS='orbit_fin_v1', SESS='orbit_sess', DEV='orbit_device', THEME='orbit_theme', BASE='orbit_sync_base';
 const $=(s,r=document)=>r.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-4);
 const todayISO=()=>new Date().toISOString().slice(0,10);
@@ -348,9 +351,9 @@ let deferredPrompt=null, hiddenAt=0;
 
 /* ---------------- persistencia ---------------- */
 function blank(){
-  return {v:2,users:[],
+  return {v:3,users:[],
     settings:{usdRate:1000,rateDate:todayISO(),catG:[...CAT_G],catI:[...CAT_I]},
-    tx:[],rec:[],debts:[],boxes:[],fds:[],holds:[]};
+    tx:[],rec:[],debts:[],boxes:[],fds:[],holds:[],tomb:{}};
 }
 function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
 function lsSet(k,v){try{localStorage.setItem(k,v)}catch(e){toast('No se pudo guardar')}}
@@ -359,8 +362,21 @@ function load(){
   try{S=JSON.parse(lsGet(LS))||blank()}catch(e){S=blank()}
   const b=blank(); for(const k in b) if(S[k]===undefined) S[k]=b[k];
   for(const k in b.settings) if(S.settings[k]===undefined) S.settings[k]=b.settings[k];
+  podarPapelera();
 }
-const save=()=>lsSet(LS,JSON.stringify(S));
+/* La papelera sólo sirve para que un celular que estuvo mucho tiempo
+   apagado no resucite algo borrado. Después de 6 meses no hace falta. */
+function podarPapelera(){
+  const corte=Date.now()-180*86400000;
+  for(const k in S.tomb){
+    const m=S.tomb[k];
+    for(const id in m) if(!(Number(m[id])>corte)) delete m[id];
+    if(!Object.keys(m).length) delete S.tomb[k];
+  }
+}
+/* Guardar = escribir en el teléfono y, si hay sincronización, mandar
+   al hogar sólo lo que cambió. syncPush() se define más abajo. */
+const save=()=>{lsSet(LS,JSON.stringify(S)); if(!aplicando) syncSoon()};
 const dev=()=>{try{return JSON.parse(lsGet(DEV))||{}}catch(e){return {}}};
 const devSave=o=>lsSet(DEV,JSON.stringify(o));
 
@@ -373,6 +389,295 @@ async function hashPw(pw,salt){
   let h=5381; const s=salt+'::'+pw;
   for(let i=0;i<s.length;i++){h=((h*33)^s.charCodeAt(i))>>>0}
   return 'fb'+h.toString(16);
+}
+
+/* ============================================================
+   SINCRONIZACIÓN ENTRE CELULARES (Firebase)
+   ------------------------------------------------------------
+   Cómo funciona, en criollo:
+   - El teléfono sigue siendo el que manda: todo se guarda primero
+     acá y la app anda igual sin internet.
+   - Cada vez que grabás, se compara con la última foto conocida
+     y se sube SÓLO lo que cambió (un movimiento, no todo).
+   - Lo que sube el otro celular llega solo, en el momento.
+   - Si los dos tocaron el MISMO registro, gana el más reciente.
+     Todo lo demás se junta: no se pisa nada.
+   - Los borrados se anotan en una "papelera" interna (tomb) para
+     que un registro borrado en un celu no reviva desde el otro.
+   ============================================================ */
+/* 'users' va acá adentro a propósito: así cada persona es un registro
+   propio y sumarse al hogar no pisa la ficha del otro. */
+const COLS=['tx','rec','debts','boxes','fds','holds','users'];
+let FB=null;            // SDK de Firebase ya cargado
+let hogar=null;         // código del hogar
+let paraCancelar=[];    // listeners activos
+let base=null;          // última foto conocida {coleccion:{id:json}}
+let aplicando=false;    // true mientras aplico cambios que vienen de afuera
+let pushT=null, estado='off', estadoMsg='', subirTodo=false;
+
+const cfgOk=()=>{
+  const c=window.ORBIT_FB;
+  return !!(c&&c.apiKey&&c.projectId&&!/PEGAR_ACA/.test(c.apiKey+c.projectId));
+};
+const sincroOn=()=>cfgOk();
+const listo=()=>!!(FB&&hogar&&FB.auth.currentUser);
+
+function setEstado(e,m){
+  estado=e; estadoMsg=m||'';
+  const t=$('#syncTag'); if(t)t.outerHTML=tagSync();
+  if(me&&view==='set')render();
+}
+function tagSync(){
+  const L={off:['','' ],conectando:['Conectando…','dim'],ok:['Sincronizado','pos'],
+           offline:['Sin conexión','dim'],error:['Error de sincro','neg']};
+  const [txt,cls]=L[estado]||['',''];
+  return `<span id="syncTag" class="tag ${cls}">${esc(txt)}</span>`;
+}
+
+/* ---------- carga del SDK ---------- */
+async function fbCargar(){
+  if(FB) return FB;
+  const V='10.12.2', U=n=>`https://www.gstatic.com/firebasejs/${V}/firebase-${n}.js`;
+  const [A,Au,Fs]=await Promise.all([import(U('app')),import(U('auth')),import(U('firestore'))]);
+  const app=A.initializeApp(window.ORBIT_FB);
+  FB={app,
+    auth:Au.getAuth(app), db:Fs.getFirestore(app),
+    crear:Au.createUserWithEmailAndPassword, entrar:Au.signInWithEmailAndPassword,
+    salir:Au.signOut, onAuth:Au.onAuthStateChanged, cambiarPw:Au.updatePassword,
+    reauth:Au.reauthenticateWithCredential, cred:Au.EmailAuthProvider.credential,
+    resetPw:Au.sendPasswordResetEmail,
+    doc:Fs.doc, col:Fs.collection, getDoc:Fs.getDoc, setDoc:Fs.setDoc,
+    updateDoc:Fs.updateDoc, onSnap:Fs.onSnapshot, batch:Fs.writeBatch, arrUnion:Fs.arrayUnion};
+  return FB;
+}
+
+/* ---------- fotos y comparación ---------- */
+const limpio=r=>JSON.stringify(r,(k,v)=>k==='updatedAt'?undefined:v);
+function foto(){
+  const o={};
+  for(const k of COLS){o[k]={}; for(const r of S[k]) o[k][r.id]=limpio(r)}
+  o.__set=limpio(S.settings);
+  return o;
+}
+/* Primera foto. 'todo' sube lo que ya había en el celular (recién creado
+   el hogar, o backup importado). 'nuevo' evita que un celular recién sumado
+   pise los ajustes del hogar con los de fábrica. */
+function baseInicial(modo){
+  base={};
+  if(modo!=='todo') base.__set=limpio(S.settings);
+  baseGuardar();
+}
+/* La foto tiene que existir antes de tocar nada: los cambios del otro
+   celular pueden llegar antes de que hayamos subido por primera vez. */
+function baseSeguro(){
+  if(!base){baseInicial(subirTodo?'todo':'nuevo'); subirTodo=false}
+  return base;
+}
+function baseCargar(){
+  try{base=JSON.parse(lsGet(BASE))}catch(e){base=null}
+  if(!base||typeof base!=='object'){base=null}
+}
+const baseGuardar=()=>lsSet(BASE,JSON.stringify(base));
+
+/* ---------- subir lo que cambió ---------- */
+function syncSoon(){
+  if(!listo())return;
+  clearTimeout(pushT);
+  pushT=setTimeout(()=>syncPush().catch(e=>setEstado('error',e.message)),400);
+}
+async function syncPush(){
+  if(!listo())return;
+  baseSeguro();
+  const ahora=Date.now(), f=foto(), ops=[], anotar=[];
+  for(const k of COLS){
+    const prev=base[k]||{}, cur=f[k]||{};
+    for(const id in cur) if(prev[id]!==cur[id]){
+      const r=S[k].find(x=>x.id===id); if(!r)continue;
+      r.updatedAt=ahora;
+      ops.push([k,id,{...r,deleted:false,updatedAt:ahora}]);
+      anotar.push(()=>{base[k]=base[k]||{}; base[k][id]=cur[id]});
+    }
+    for(const id in prev) if(!(id in cur)){          // lo borraron acá
+      S.tomb[k]=S.tomb[k]||{}; S.tomb[k][id]=ahora;
+      ops.push([k,id,{deleted:true,updatedAt:ahora}]);
+      anotar.push(()=>{if(base[k])delete base[k][id]});
+    }
+  }
+  if(f.__set!==base.__set){
+    S.settings.updatedAt=ahora;
+    ops.push(['meta','ajustes',{...S.settings,updatedAt:ahora}]);
+    anotar.push(()=>{base.__set=f.__set});
+  }
+  if(!ops.length)return;
+  /* De a 400 por vez: Firestore no acepta lotes de más de 500. */
+  for(let i=0;i<ops.length;i+=400){
+    const b=FB.batch(FB.db);
+    /* el ida y vuelta por JSON saca los campos vacíos: Firestore los rechaza */
+    for(const [k,id,data] of ops.slice(i,i+400))
+      b.set(FB.doc(FB.db,'hogares',hogar,k,id),JSON.parse(JSON.stringify(data)));
+    await b.commit();
+  }
+  /* Recién ahora damos por subido: si falló, se reintenta en el próximo push. */
+  anotar.forEach(f=>f());
+  baseGuardar(); lsSet(LS,JSON.stringify(S));
+  setEstado('ok');
+}
+
+/* ---------- aplicar lo que llega del otro celular ---------- */
+function aplicarRemoto(k,id,d){
+  baseSeguro();
+  const ts=Number(d.updatedAt)||0;
+  if(k==='meta'){
+    if(id==='ajustes'){
+      const mio=Number(S.settings.updatedAt)||0;
+      if(ts<mio)return false;
+      const {updatedAt,...rest}=d; S.settings={...S.settings,...rest,updatedAt:ts};
+      base.__set=limpio(S.settings); return true;
+    }
+    return false;
+  }
+  if(!COLS.includes(k))return false;
+  const arr=S[k], i=arr.findIndex(x=>x.id===id);
+  const tomb=(S.tomb[k]&&S.tomb[k][id])||0;
+  const mio=Math.max(i>=0?(Number(arr[i].updatedAt)||0):0, tomb);
+  if(ts<mio)return false;                       // lo nuestro es más nuevo: no tocar
+  base[k]=base[k]||{};
+  if(d.deleted){
+    if(i>=0)arr.splice(i,1);
+    S.tomb[k]=S.tomb[k]||{}; S.tomb[k][id]=ts;
+    delete base[k][id];
+    return true;
+  }
+  const {deleted,...r}=d; r.id=id; r.updatedAt=ts;
+  if(i>=0)arr[i]=r; else arr.push(r);
+  if(S.tomb[k])delete S.tomb[k][id];
+  base[k][id]=limpio(r);
+  if(k==='users'&&me&&id===me.id)me=r;
+  return true;
+}
+function escuchar(){
+  dejarDeEscuchar();
+  for(const k of [...COLS,'meta']){
+    paraCancelar.push(FB.onSnap(FB.col(FB.db,'hogares',hogar,k),
+      s=>{
+        let hubo=false;
+        s.docChanges().forEach(c=>{
+          if(c.type==='removed')return;
+          if(aplicarRemoto(k,c.doc.id,c.doc.data()))hubo=true;
+        });
+        setEstado('ok');
+        if(hubo){
+          aplicando=true; lsSet(LS,JSON.stringify(S)); baseGuardar(); aplicando=false;
+          if(me)render();
+        }
+      },
+      e=>setEstado(e.code==='permission-denied'?'error':'offline',e.message)));
+  }
+}
+function dejarDeEscuchar(){paraCancelar.forEach(f=>{try{f()}catch(e){}}); paraCancelar=[]}
+
+/* ---------- alta de hogar / ingreso ---------- */
+const codigoHogar=()=>uid()+uid();
+
+async function fbCrearHogar(nombre,email,pw){
+  await fbCargar();
+  const {user}=await FB.crear(FB.auth,email,pw);
+  const hid=codigoHogar();
+  await FB.setDoc(FB.doc(FB.db,'hogares',hid),{miembros:[user.uid],creado:Date.now()});
+  await FB.setDoc(FB.doc(FB.db,'usuarios',user.uid),{nombre,hogar:hid});
+  migrarLocal(user.uid,nombre,email);
+  hogar=hid;
+  base=null; lsDel(BASE); subirTodo=true;    // fuerza subida completa de lo que ya había
+  await arrancarSincro(user.uid,nombre,email);
+}
+async function fbUnirse(codigo,nombre,email,pw){
+  await fbCargar();
+  /* Primero intentamos crear la cuenta. Si el mail ya existe, entramos:
+     así una contraseña mal escrita avisa "contraseña incorrecta" y no
+     "ese mail ya está en uso", que no le dice nada a nadie. */
+  let user;
+  try{ user=(await FB.crear(FB.auth,email,pw)).user }
+  catch(e){
+    if(e.code!=='auth/email-already-in-use')throw e;
+    user=(await FB.entrar(FB.auth,email,pw)).user;
+  }
+  await FB.updateDoc(FB.doc(FB.db,'hogares',codigo),{miembros:FB.arrUnion(user.uid)});
+  await FB.setDoc(FB.doc(FB.db,'usuarios',user.uid),{nombre,hogar:codigo});
+  hogar=codigo;
+  await arrancarSincro(user.uid,nombre,email);
+}
+async function fbIngresar(email,pw){
+  await fbCargar();
+  const {user}=await FB.entrar(FB.auth,email,pw);
+  const p=await FB.getDoc(FB.doc(FB.db,'usuarios',user.uid));
+  if(!p.exists()||!p.data().hogar){await FB.salir(FB.auth); throw new Error('Esta cuenta todavía no está en ningún hogar. Usá "Unirme a un hogar" con el código.')}
+  hogar=p.data().hogar;
+  await arrancarSincro(user.uid,p.data().nombre||'',email);
+}
+async function arrancarSincro(uidFb,nombre,email){
+  setEstado('conectando');
+  me={id:uidFb,name:nombre,email};
+  if(!S.users.some(u=>u.id===uidFb)){S.users.push({id:uidFb,name:nombre,email})}
+  lsSet(SESS,uidFb);
+  baseCargar();
+  escuchar();
+  await syncPush().catch(()=>{});
+  boot();
+}
+
+/* Si ya había datos cargados en este celular, se los pasamos a la cuenta
+   nueva para no perderlos (los movimientos apuntan al usuario viejo). */
+function migrarLocal(uidFb,nombre,email){
+  const viejo=S.users.find(u=>u.email&&u.email.toLowerCase()===email.toLowerCase())||S.users[0];
+  if(viejo&&viejo.id!==uidFb)remapOwner(viejo.id,uidFb);
+  S.users=S.users.filter(u=>u!==viejo).map(u=>({id:u.id,name:u.name,email:u.email}));
+  S.users.unshift({id:uidFb,name:nombre,email});
+}
+/* Un usuario "de antes": el que existía en el celular cuando todavía no
+   había sincronización. Se reconoce por el id corto (las cuentas de
+   Firebase usan ids largos). Sus movimientos siguen mostrando su nombre;
+   cuando esa persona entra con su cuenta, toca "Esta soy yo" en Ajustes
+   y sus movimientos pasan a ser suyos. */
+const esLegado=u=>/^[a-z0-9]{9,14}$/.test(String(u.id));
+function reclamar(idViejo){
+  const u=S.users.find(x=>x.id===idViejo); if(!u||!me)return;
+  confirmar(`¿Los movimientos de "${u.name}" son tuyos? Van a pasar a tu nombre.`,()=>{
+    remapOwner(idViejo,me.id);
+    S.users=S.users.filter(x=>x.id!==idViejo);
+    save(); render(); toast('Listo, ahora son tuyos');
+  });
+}
+function remapOwner(de,a){
+  for(const k of COLS) for(const r of S[k]) if(r.owner===de)r.owner=a;
+}
+
+/* ---------- reanudar sesión al abrir la app ---------- */
+async function sincroReanudar(){
+  if(!sincroOn())return false;
+  setEstado('conectando');
+  try{ await fbCargar() }catch(e){ setEstado('offline','No se pudo cargar Firebase'); return false }
+  return new Promise(res=>{
+    let primera=true;
+    FB.onAuth(FB.auth,async u=>{
+      if(!primera)return; primera=false;
+      if(!u){setEstado('off'); return res(false)}
+      try{
+        const p=await FB.getDoc(FB.doc(FB.db,'usuarios',u.uid));
+        if(!p.exists()||!p.data().hogar){setEstado('off'); return res(false)}
+        hogar=p.data().hogar;
+        me={id:u.uid,name:p.data().nombre||'',email:u.email};
+        if(!S.users.some(x=>x.id===u.uid)){S.users.push({...me})}
+        lsSet(SESS,u.uid);
+        baseCargar(); escuchar(); syncPush().catch(()=>{});
+        res(true);
+      }catch(e){setEstado('offline',e.message); res(false)}
+    });
+  });
+}
+async function sincroSalir(){
+  dejarDeEscuchar();
+  try{ if(FB&&FB.auth.currentUser) await FB.salir(FB.auth) }catch(e){}
+  hogar=null; setEstado('off');
 }
 
 /* ---------------- tema ---------------- */
@@ -455,9 +760,94 @@ function renderAuth(){
   applyTheme();
   const A=$('#auth'); A.classList.remove('hide'); $('#app').classList.add('hide');
   const d=dev();
+  if(sincroOn()){
+    if(FB&&FB.auth.currentUser&&hogar){
+      if(d.pin&&d.uid===FB.auth.currentUser.uid) return authPin(A,d);
+      return boot();
+    }
+    return authFb(A);
+  }
   if(!S.users.length) return authSetup(A);
   if(d.pin && d.uid && S.users.some(u=>u.id===d.uid)) return authPin(A,d);
   authLogin(A);
+}
+
+/* ---------- acceso cuando la sincronización está activa ---------- */
+let fbMode='in';
+function authFb(A){
+  const T={in:'Ingresar',new:'Crear el hogar',join:'Unirme al hogar'};
+  const campos=
+    (fbMode==='join'?`<div class="fld"><label class="up">Código del hogar</label>
+        <input id="fcode" autocapitalize="off" autocomplete="off" placeholder="Te lo pasa la otra persona"></div>`:'')+
+    (fbMode==='in'?'':`<div class="fld"><label class="up">Tu nombre</label><input id="fname" placeholder="Nombre"></div>`)+
+    `<div class="fld"><label class="up">Email</label>
+       <input id="fmail" type="email" inputmode="email" autocapitalize="off" autocomplete="username"></div>
+     <div class="fld"><label class="up">Contraseña</label>
+       <input id="fpw" type="password" autocomplete="${fbMode==='in'?'current-password':'new-password'}"
+         placeholder="${fbMode==='in'?'':'mínimo 6 caracteres'}"></div>`;
+  const otros=[['in','Ingresar'],['new','Crear hogar'],['join','Unirme con código']]
+    .filter(([k])=>k!==fbMode)
+    .map(([k,l])=>`<button class="btn ghost sm" data-act="fbmode" data-m="${k}">${l}</button>`).join('');
+  A.innerHTML=`<div class="authbox">
+    <div class="wordmark">ORBIT</div>
+    <div class="wordsub up">${T[fbMode]}</div>
+    <div class="authform">
+      ${campos}
+      <div class="err" id="aerr"></div>
+      <button class="btn solid" data-act="fbgo">${T[fbMode]}</button>
+      <div class="cbtns" style="margin-top:14px;justify-content:center">${otros}</div>
+      ${fbMode==='in'?'<div style="margin-top:10px;text-align:center"><button class="btn ghost sm" data-act="fbreset">Olvidé mi contraseña</button></div>':''}
+    </div>
+    <div class="authnote">${fbMode==='new'
+      ? 'Creá el hogar en un celular. Después te da un código para que la otra persona se sume desde el suyo.'
+      : fbMode==='join'
+      ? 'Pedile el código a quien ya creó el hogar. Está en Ajustes → Sincronización.'
+      : 'Los datos se comparten entre los celulares del hogar.'}</div>
+  </div>`;
+  const ir=()=>fbGo();
+  ['fcode','fname','fmail','fpw'].forEach(id=>{const el=$('#'+id); if(el)el.onkeydown=e=>{if(e.key==='Enter')ir()}});
+}
+let fbOcupado=false;
+async function fbGo(){
+  if(fbOcupado)return;
+  const v=id=>{const el=$('#'+id); return el?el.value.trim():''};
+  const pw=($('#fpw')||{}).value||'';
+  const mail=v('fmail').toLowerCase(), nombre=v('fname'), code=v('fcode');
+  if(!mail||!pw) return err('Completá email y contraseña.');
+  if(fbMode!=='in'&&!nombre) return err('Poné tu nombre.');
+  if(fbMode==='join'&&!code) return err('Falta el código del hogar.');
+  if(fbMode!=='in'&&pw.length<6) return err('La contraseña tiene que tener 6 caracteres o más.');
+  fbOcupado=true; err('Conectando…');
+  try{
+    if(fbMode==='in') await fbIngresar(mail,pw);
+    else if(fbMode==='new') await fbCrearHogar(nombre,mail,pw);
+    else await fbUnirse(code,nombre,mail,pw);
+    if(!dev().pin) setTimeout(askPin,600);
+  }catch(e){ err(fbErr(e)) }
+  fbOcupado=false;
+}
+function fbErr(e){
+  const c=(e&&e.code)||'';
+  const M={
+    'auth/invalid-email':'Ese email no es válido.',
+    'auth/invalid-credential':'Email o contraseña incorrectos.',
+    'auth/wrong-password':'Contraseña incorrecta.',
+    'auth/user-not-found':'Ese email no está registrado.',
+    'auth/email-already-in-use':'Ese email ya tiene cuenta. Probá con "Ingresar".',
+    'auth/weak-password':'La contraseña es muy corta (mínimo 6).',
+    'auth/network-request-failed':'Sin internet. Probá de nuevo cuando tengas señal.',
+    'auth/too-many-requests':'Demasiados intentos. Esperá un rato.',
+    'auth/operation-not-allowed':'Falta activar "Email/contraseña" en Firebase (Authentication → Sign-in method).',
+    'permission-denied':'El código del hogar no es correcto, o las reglas de Firestore no están publicadas.',
+    'not-found':'No existe ningún hogar con ese código.'
+  };
+  return M[c]||(e&&e.message)||'No se pudo conectar.';
+}
+async function fbReset(){
+  const mail=(($('#fmail')||{}).value||'').trim();
+  if(!mail) return err('Escribí tu email y volvé a tocar el botón.');
+  try{ await fbCargar(); await FB.resetPw(FB.auth,mail); err('Te mandamos un mail para cambiar la contraseña.') }
+  catch(e){ err(fbErr(e)) }
 }
 function authSetup(A){
   A.innerHTML=`<div class="authbox">
@@ -501,7 +891,7 @@ function authLogin(A){
 let pinBuf='';
 function authPin(A,d){
   pinBuf='';
-  const u=S.users.find(x=>x.id===d.uid);
+  const u=S.users.find(x=>x.id===d.uid)||me||{name:''};
   A.innerHTML=`<div class="authbox">
     <div class="wordmark">ORBIT</div>
     <div class="wordsub up">Hola ${esc(u.name)}</div>
@@ -526,7 +916,7 @@ function pinPress(k){
     const p=pinBuf;
     hashPw(p,d.salt).then(h=>{
       if(h===d.pin){
-        me=S.users.find(u=>u.id===d.uid); lsSet(SESS,me.id); boot();
+        me=S.users.find(u=>u.id===d.uid)||me; lsSet(SESS,me.id); boot();
       }else{
         pinBuf=''; dots.classList.add('bad');
         [...dots.children].forEach(c=>c.classList.remove('on'));
@@ -562,8 +952,9 @@ async function doLogin(){
 }
 const err=m=>{const e=$('#aerr'); if(e)e.textContent=m};
 function logout(){
-  confirmar('¿Cerrar sesión en este dispositivo? Se borra también el PIN guardado.',()=>{
-    me=null; lsDel(SESS); lsDel(DEV); renderAuth();
+  confirmar('¿Cerrar sesión en este dispositivo? Se borra también el PIN guardado.',async()=>{
+    await sincroSalir();
+    me=null; lsDel(SESS); lsDel(DEV); fbMode='in'; renderAuth();
   });
 }
 function askPin(){
@@ -918,11 +1309,33 @@ function vSet(){
   </div>
 
   <div class="sect">
+    <div class="sechead"><div class="sectitle">Sincronización</div>${sincroOn()?tagSync():''}</div>
+    ${sincroOn()?`<div class="panel">
+      ${hogar?`<h3>Código del hogar</h3>
+        <div class="num" style="word-break:break-all;font-size:15px;letter-spacing:.5px;margin-bottom:12px">${esc(hogar)}</div>
+        <div class="help" style="margin-top:0">Pasale este código a la otra persona. En su celular tiene que elegir
+          <b>Unirme con código</b> y pegarlo. Desde ahí ven exactamente lo mismo los dos.</div>
+        <div class="cbtns" style="margin-top:14px">
+          <button class="btn sm" data-act="sharecode">Compartir código</button>
+          <button class="btn sm" data-act="syncnow">Sincronizar ahora</button>
+        </div>
+        <div class="help">En el hogar: ${S.users.map(u=>esc(u.name)).join(' · ')||'—'}${estadoMsg?'<br>'+esc(estadoMsg):''}</div>`
+      :`<div class="help" style="margin:0">Estás sin hogar activo. Cerrá sesión y volvé a entrar.</div>`}
+    </div>`
+    :`<div class="panel">
+      <div class="help" style="margin:0">Los datos de este celular <b>no</b> se comparten con nadie.
+      Para que los dos celulares vean lo mismo hay que completar el archivo
+      <b>firebase-config.js</b>. El instructivo está en LEEME.txt (PASO 6).</div>
+    </div>`}
+  </div>
+
+  <div class="sect">
     <div class="sechead"><div class="sectitle">Usuarios</div></div>
     <div class="rows">${S.users.map(u=>`<div class="row" style="cursor:default">
-      <div class="rmain"><div class="rtitle">${esc(u.name)} ${u.id===me.id?'<span class="tag">Vos</span>':''}</div>
+      <div class="rmain"><div class="rtitle">${esc(u.name)} ${u.id===me.id?'<span class="tag">Vos</span>':(hogar&&esLegado(u)?'<span class="tag dim">De antes</span>':'')}</div>
       <div class="rsub">${esc(u.email)}</div></div>
-      <div>${u.id===me.id?'<button class="btn sm" data-act="chpw">Contraseña</button>':''}</div>
+      <div>${u.id===me.id?'<button class="btn sm" data-act="chpw">Contraseña</button>'
+        :(hogar&&esLegado(u)?`<button class="btn sm" data-act="claim" data-id="${esc(u.id)}">Esta soy yo</button>`:'')}</div>
     </div>`).join('')}</div>
   </div>
 
@@ -933,7 +1346,8 @@ function vSet(){
         <button class="btn sm" data-act="exp">Exportar backup</button>
         <button class="btn sm" data-act="imp">Importar backup</button>
       </div>
-      <div class="help">Todo vive en este dispositivo. Exportá seguido y guardá el archivo en Drive o mandátelo por mail.<br>
+      <div class="help">${hogar?'Los datos se comparten con el hogar, pero el backup sigue siendo tuyo: exportalo cada tanto por las dudas.'
+        :'Todo vive en este dispositivo. Exportá seguido y guardá el archivo en Drive o mandátelo por mail.'}<br>
       Movimientos: ${S.tx.length} · Cajas: ${S.boxes.length} · Plazos fijos: ${S.fds.length} · Tenencias: ${S.holds.length} · Deudas: ${S.debts.length} · Fijos: ${S.rec.length}</div>
     </div>
     <div class="cbtns" style="margin-top:12px">
@@ -1268,9 +1682,18 @@ function formPw(){
             {k:'b',label:'Nueva contraseña',type:'password'},
             {k:'c',label:'Repetir nueva',type:'password'}],
     onSave:async v=>{
-      if(await hashPw(v.a,me.salt)!==me.hash) return ferr('La contraseña actual no coincide.');
-      if(!v.b||v.b.length<4) return ferr('La nueva debe tener 4+ caracteres.');
+      const min=hogar?6:4;
+      if(!v.b||v.b.length<min) return ferr('La nueva debe tener '+min+'+ caracteres.');
       if(v.b!==v.c) return ferr('Las contraseñas nuevas no coinciden.');
+      if(hogar){
+        try{
+          const u=FB.auth.currentUser;
+          await FB.reauth(u,FB.cred(u.email,v.a));
+          await FB.cambiarPw(u,v.b);
+        }catch(e){ return ferr(fbErr(e)) }
+        toast('Contraseña actualizada'); return;
+      }
+      if(await hashPw(v.a,me.salt)!==me.hash) return ferr('La contraseña actual no coincide.');
       me.salt=uid(); me.hash=await hashPw(v.b,me.salt); save(); toast('Contraseña actualizada');
     }});
 }
@@ -1318,9 +1741,18 @@ function importar(){
       try{
         const d=JSON.parse(r.result);
         if(!d.users||!Array.isArray(d.tx)) throw 0;
-        confirmar('Vas a reemplazar TODOS los datos de este dispositivo por los del archivo.',()=>{
-          S=d; save(); const u=S.users.find(x=>x.id===(me&&me.id))||S.users[0];
-          me=u; lsSet(SESS,u.id); lsDel(DEV); render(); toast('Backup importado');
+        confirmar('Vas a reemplazar TODOS los datos de este dispositivo por los del archivo.'+
+          (hogar?'\n\nComo tenés sincronización activa, el backup también se sube al hogar y reemplaza lo que ve el otro celular.':''),()=>{
+          S=d; if(!S.tomb)S.tomb={};
+          const b=blank(); for(const k in b) if(S[k]===undefined) S[k]=b[k];
+          if(hogar){                                  // subir el backup entero al hogar
+            base=null; lsDel(BASE); subirTodo=true;
+            const yo=S.users.find(x=>x.id===me.id);
+            if(!yo){remapOwner((S.users[0]||{}).id,me.id); S.users=[{...me}]}
+          }
+          const u=S.users.find(x=>x.id===(me&&me.id))||S.users[0];
+          me=u; lsSet(SESS,u.id); if(!hogar)lsDel(DEV);
+          save(); render(); toast('Backup importado');
         });
       }catch(e){toast('Archivo inválido')}
     };
@@ -1340,6 +1772,15 @@ document.addEventListener('click',e=>{
   const a=b.dataset.act, id=b.dataset.id;
   const A={
     dosetup:doSetup, dologin:doLogin, usepw:()=>{lsDel(DEV);renderAuth()},
+    fbmode:()=>{fbMode=b.dataset.m;renderAuth()}, fbgo:fbGo, fbreset:fbReset,
+    claim:()=>reclamar(id),
+    syncnow:()=>{syncPush().then(()=>toast('Sincronizado')).catch(e=>toast(fbErr(e)))},
+    sharecode:()=>{
+      const t='Código del hogar ORBIT: '+hogar;
+      if(navigator.share) navigator.share({title:'ORBIT',text:t}).catch(()=>{});
+      else if(navigator.clipboard) navigator.clipboard.writeText(hogar).then(()=>toast('Código copiado'),()=>toast(hogar));
+      else toast(hogar);
+    },
     logout, go:()=>{view=b.dataset.v;render()},
     curtog:()=>{cur=cur==='ARS'?'USD':'ARS';render()},
     per:()=>{dashPer=b.dataset.p;render()},
@@ -1361,8 +1802,11 @@ document.addEventListener('click',e=>{
       if(t==='G')S.settings.catG=S.settings.catG.filter(x=>x!==c); else S.settings.catI=S.settings.catI.filter(x=>x!==c);
       save();render()},
     chpw:formPw, exp:exportar, imp:importar,
-    wipe:()=>confirmar('Se borran TODOS los datos y los usuarios de este dispositivo. Vas a tener que configurar la app de cero.',()=>{
-      lsDel(LS);lsDel(SESS);lsDel(DEV);S=blank();me=null;renderAuth()})
+    wipe:()=>confirmar('Se borran TODOS los datos y los usuarios de este dispositivo. Vas a tener que configurar la app de cero.'+
+      (hogar?'\n\nOjo: se borran sólo los de este celular. Lo que ya está en el hogar sigue en el otro y vuelve a bajar si volvés a entrar.':''),async()=>{
+      await sincroSalir();
+      lsDel(LS);lsDel(SESS);lsDel(DEV);lsDel(BASE);
+      base=null;S=blank();me=null;fbMode='in';renderAuth()})
   };
   if(A[a]){e.preventDefault();A[a]()}
 });
@@ -1377,12 +1821,20 @@ document.addEventListener('visibilitychange',()=>{
 
 /* ---------------- arranque ---------------- */
 load(); applyTheme();
-const d0=dev(), sid=lsGet(SESS);
-if(d0.pin&&d0.uid&&S.users.some(u=>u.id===d0.uid)){renderAuth()}
-else{
-  const su=sid?S.users.find(u=>u.id===sid):null;
-  if(su){me=su;boot()}else renderAuth();
+function arranqueLocal(){
+  const d0=dev(), sid=lsGet(SESS);
+  if(d0.pin&&d0.uid&&S.users.some(u=>u.id===d0.uid)){renderAuth()}
+  else{
+    const su=sid?S.users.find(u=>u.id===sid):null;
+    if(su){me=su;boot()}else renderAuth();
+  }
 }
+if(sincroOn()){
+  $('#auth').classList.remove('hide'); $('#app').classList.add('hide');
+  $('#auth').innerHTML=`<div class="authbox"><div class="wordmark">ORBIT</div>
+    <div class="wordsub up">Conectando…</div></div>`;
+  sincroReanudar().then(()=>renderAuth()).catch(()=>renderAuth());
+}else arranqueLocal();
 if('serviceWorker' in navigator && location.protocol.startsWith('http')){
   window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 }

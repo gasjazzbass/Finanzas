@@ -1,0 +1,25 @@
+PRUEBAS
+================================================================
+Esta carpeta no forma parte de la app: son chequeos automáticos de
+la parte más delicada, la que decide qué pasa cuando los dos
+celulares tocan las mismas cosas.
+
+No hace falta subirlos a GitHub, y si los subís tampoco molestan.
+
+Para correrlos hace falta Node.js instalado en la computadora:
+
+    cd pruebas
+    node sincronizacion.test.js
+    node modo-local.test.js
+
+Los archivos leen el index.html de verdad, así que si alguna vez
+cambiás la sincronización y rompés algo, las pruebas lo avisan.
+
+sincronizacion.test.js   simula dos (y tres) celulares contra un
+                         Firebase de mentira: fusiones, ediciones
+                         cruzadas, borrados, cortes de internet y
+                         subidas grandes.
+
+modo-local.test.js       verifica que sin firebase-config.js
+                         completado la app siga funcionando como
+                         siempre, guardando sólo en el teléfono.
