@@ -1,0 +1,103 @@
+ORBIT · Finanzas
+================================================================
+Cómo subirla a internet y tenerla como app en el celular.
+Es gratis y no hay que instalar ningún programa.
+
+
+PASO 1 · CREAR LA CUENTA (solo la primera vez)
+----------------------------------------------------------------
+1. Entrá a  github.com  y hacé clic en "Sign up".
+2. Poné tu mail, una contraseña y un nombre de usuario.
+   El nombre de usuario va a ser parte de la dirección de tu app,
+   así que elegí algo corto (por ejemplo: gasparb).
+3. Confirmá el mail que te llega.
+
+
+PASO 2 · CREAR EL REPOSITORIO
+----------------------------------------------------------------
+1. Ya adentro de GitHub, arriba a la derecha tocá el "+" y elegí
+   "New repository".
+2. En "Repository name" escribí:   finanzas
+3. Dejá marcado "Public".
+   (Es necesario para que funcione gratis. Tranquilo: se publica el
+   PROGRAMA, no tus datos. Tus números quedan guardados solo en tu
+   teléfono, nunca se suben a internet.)
+4. Tocá "Create repository".
+
+
+PASO 3 · SUBIR LOS ARCHIVOS
+----------------------------------------------------------------
+1. En la pantalla que aparece, hacé clic en el link
+   "uploading an existing file".
+2. Abrí la carpeta ORBIT-app en tu computadora, seleccioná TODOS
+   los archivos (Ctrl + E o Ctrl + A) y arrastralos a la ventana
+   del navegador. Son estos 6:
+
+        index.html
+        manifest.webmanifest
+        sw.js
+        icon-192.png
+        icon-512.png
+        apple-touch-icon.png
+
+   (El LEEME.txt no hace falta subirlo, pero tampoco molesta.)
+
+3. Abajo tocá el botón verde "Commit changes".
+
+
+PASO 4 · ENCENDER LA PÁGINA
+----------------------------------------------------------------
+1. Arriba tocá la solapa "Settings".
+2. En el menú de la izquierda, tocá "Pages".
+3. Donde dice "Branch", elegí "main", dejá "/ (root)" y tocá "Save".
+4. Esperá 1 o 2 minutos y recargá esa misma pantalla.
+   Va a aparecer un cartel con tu dirección:
+
+        https://TU-USUARIO.github.io/finanzas/
+
+   Esa es la dirección de tu app. Guardala.
+
+
+PASO 5 · INSTALARLA EN EL CELULAR
+----------------------------------------------------------------
+Mandate la dirección por WhatsApp y abrila en el teléfono.
+
+ANDROID (Chrome)
+  1. Tocá los tres puntitos arriba a la derecha.
+  2. Elegí "Instalar app" (o "Agregar a pantalla principal").
+  3. Confirmá con "Instalar".
+
+IPHONE (tiene que ser con Safari, no con Chrome)
+  1. Tocá el botón Compartir (el cuadrado con la flecha para arriba).
+  2. Bajá y elegí "Agregar a inicio".
+  3. Confirmá con "Agregar".
+
+Listo: queda el ícono en la pantalla de inicio y se abre a pantalla
+completa, sin la barra del navegador, igual que cualquier otra app.
+Hacé lo mismo en el celular del otro usuario.
+
+
+PRIMERA VEZ QUE LA ABRÍS
+----------------------------------------------------------------
+Te pide crear las dos cuentas (nombre, mail y contraseña de cada uno).
+Después de entrar te ofrece armar un PIN de 4 números para no tener
+que escribir la contraseña todos los días.
+
+
+DOS COSAS IMPORTANTES
+----------------------------------------------------------------
+1. LOS DATOS SON DE CADA TELÉFONO.
+   Lo que cargues en tu celular no aparece en el otro. Cada uno
+   lleva lo suyo, o eligen un solo teléfono como "el oficial".
+
+2. EXPORTÁ EL BACKUP SEGUIDO.
+   Ajustes -> Exportar backup. En el celular te deja mandarlo
+   directo por WhatsApp o guardarlo en Drive. Si se borran los
+   datos del navegador o se pierde el teléfono, sin backup no hay
+   forma de recuperarlos.
+
+
+SI DESPUÉS QUERÉS CAMBIAR ALGO DE LA APP
+----------------------------------------------------------------
+Subí el index.html nuevo al repositorio (Add file -> Upload files)
+y en 1 minuto se actualiza sola en los dos celulares.
