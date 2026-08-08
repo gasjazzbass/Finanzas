@@ -84,6 +84,28 @@ Después de entrar te ofrece armar un PIN de 4 números para no tener
 que escribir la contraseña todos los días.
 
 
+SUMAR EL SEGUNDO TELÉFONO
+----------------------------------------------------------------
+Las cuentas viven en el teléfono donde se crearon, no en internet.
+Por eso, en el segundo teléfono la app arranca vacía y pide crear
+las cuentas de nuevo. Para evitar eso:
+
+  1. En el teléfono donde YA están las cuentas:
+     Ajustes -> Exportar backup -> mandarlo por WhatsApp.
+  2. En el segundo teléfono: abrir el link de la app y, en la
+     pantalla de configuración inicial, tocar "Ya tengo un backup".
+  3. Elegir el archivo .json que llegó por WhatsApp.
+     (En Android: descargarlo primero desde el chat. En iPhone:
+     tocar el archivo, "Compartir", "Guardar en Archivos".)
+  4. Aparecen las dos cuentas y ahí sí entra cada uno con SU mail
+     y SU contraseña.
+
+Importante: restaurar el backup copia los datos, no los conecta.
+Desde ese momento cada teléfono sigue por su lado. Si los dos van a
+cargar cosas, conviene elegir un teléfono como el oficial y que el
+otro solo mire.
+
+
 PRECIOS AUTOMÁTICOS
 ----------------------------------------------------------------
 Cada vez que abrís la app busca sola, por internet:

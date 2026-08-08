@@ -90,6 +90,9 @@ svg{display:block}
 .err{color:var(--neg);font-size:12px;min-height:16px;text-align:center}
 .authnote{margin-top:32px;font-size:10px;color:var(--dim2);text-align:center;line-height:1.8}
 .setuprow{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.orsep{display:flex;align-items:center;gap:14px;color:var(--dim2);font-size:9px;
+  text-transform:uppercase;letter-spacing:.2em;margin:2px 0}
+.orsep::before,.orsep::after{content:"";flex:1;height:1px;background:var(--line)}
 .divline{height:1px;background:var(--line);margin:4px 0}
 .steplbl{font-size:9px;color:var(--dim)}
 /* teclado PIN */
@@ -568,8 +571,11 @@ function authSetup(A){
       <div class="fld"><label class="up">Contraseña</label><input id="p2" type="password"></div>
       <div class="err" id="aerr"></div>
       <button class="btn solid" data-act="dosetup">Crear cuentas</button>
+      <div class="orsep"><span>o</span></div>
+      <button class="btn" data-act="imp">Ya tengo un backup</button>
+      <div class="authnote" style="margin-top:0">Si en tu familia ya crearon las cuentas, pediles el archivo de
+      backup y restauralo acá: no hace falta crear nada de nuevo.</div>
     </div>
-    <div class="authnote">Los datos quedan en este dispositivo.<br>Podés exportar un backup desde Ajustes.</div>
   </div>`;
 }
 function authLogin(A){
@@ -582,7 +588,8 @@ function authLogin(A){
       <div class="err" id="aerr"></div>
       <button class="btn solid" data-act="dologin">Ingresar</button>
     </div>
-    <div class="authnote">${S.users.map(u=>esc(u.name)+' · '+esc(u.email)).join('<br>')}</div>
+    <div class="authnote">${S.users.map(u=>esc(u.name)+' · '+esc(u.email)).join('<br>')}
+      <br><br><button class="btn sm ghost" data-act="imp" style="width:100%">Restaurar desde un backup</button></div>
   </div>`;
   $('#lp').onkeydown=e=>{if(e.key==='Enter')doLogin()};
   $('#le').onkeydown=e=>{if(e.key==='Enter')$('#lp').focus()};
@@ -1438,7 +1445,9 @@ function exportar(){
   setTimeout(()=>URL.revokeObjectURL(a.href),4000); toast('Backup descargado');
 }
 function importar(){
-  const i=document.createElement('input'); i.type='file'; i.accept='.json,application/json';
+  const i=document.createElement('input'); i.type='file';
+  /* en iPhone el filtro por extensión esconde los .json en la app Archivos */
+  if(!/iphone|ipad|ipod/i.test(navigator.userAgent)) i.accept='.json,application/json';
   i.onchange=()=>{
     const f=i.files[0]; if(!f)return;
     const r=new FileReader();
@@ -1446,9 +1455,19 @@ function importar(){
       try{
         const d=JSON.parse(r.result);
         if(!d.users||!Array.isArray(d.tx)) throw 0;
-        confirmar('Vas a reemplazar TODOS los datos de este dispositivo por los del archivo.',()=>{
-          S=d; save(); const u=S.users.find(x=>x.id===(me&&me.id))||S.users[0];
-          me=u; lsSet(SESS,u.id); lsDel(DEV); render(); toast('Backup importado');
+        const virgen=!me&&!S.users.length;
+        const msg=virgen
+          ? `El archivo trae ${d.users.length} cuenta${d.users.length===1?'':'s'} (${d.users.map(u=>esc(u.name)).join(' y ')}) y ${d.tx.length} movimientos. Después vas a entrar con tu mail y contraseña.`
+          : 'Vas a reemplazar TODOS los datos de este dispositivo por los del archivo.';
+        confirmar(msg,()=>{
+          S=d; save();
+          if(me){
+            const u=S.users.find(x=>x.id===me.id)||S.users[0];
+            me=u; lsSet(SESS,u.id); lsDel(DEV); render(); toast('Backup importado');
+          }else{
+            /* dispositivo nuevo: nunca entrar sin contraseña */
+            lsDel(SESS); lsDel(DEV); renderAuth(); toast('Listo · ingresá con tu mail y contraseña');
+          }
         });
       }catch(e){toast('Archivo inválido')}
     };
