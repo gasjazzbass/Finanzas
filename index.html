@@ -329,6 +329,18 @@ const CAT_I=['Sueldo','Honorarios','Alquileres','Ventas','Intereses','Reintegros
 const PAL_D=['#ffffff','#5fe3a1','#6aa9ff','#ffcc4d','#ff8f6b','#c58bff','#4fd6d6','#ff5f9e','#9aa0a6','#8ee06b'];
 const PAL_L=['#111111','#0a8f52','#2563eb','#b45309','#c2410c','#7c3aed','#0e7490','#be185d','#6b7280','#4d7c0f'];
 
+/* Fuentes de datos de mercado. Son públicas y gratuitas: la app solo pide la
+   tabla de precios del día, no envía ningún dato tuyo. */
+const API={
+  dolar:'https://dolarapi.com/v1/dolares',
+  ars:['https://data912.com/live/arg_cedears','https://data912.com/live/arg_stocks',
+       'https://data912.com/live/arg_bonds','https://data912.com/live/arg_notes'],
+  usd:['https://data912.com/live/usa_stocks']
+};
+const CASAS=[['oficial','Oficial'],['blue','Blue'],['bolsa','MEP (Bolsa)'],['contadoconliqui','CCL'],
+             ['mayorista','Mayorista'],['cripto','Cripto'],['tarjeta','Tarjeta'],['manual','Manual']];
+const casaLbl=c=>{const f=CASAS.find(x=>x[0]===c);return f?f[1]:c};
+
 const IC={
   dash:'<path d="M4 20V11M10 20V4M16 20v-6M22 20H2"/>',
   mov:'<path d="M7 3v18M7 3L3.5 6.5M7 3l3.5 3.5M17 21V3M17 21l-3.5-3.5M17 21l3.5-3.5"/>',
@@ -348,8 +360,9 @@ let deferredPrompt=null, hiddenAt=0;
 
 /* ---------------- persistencia ---------------- */
 function blank(){
-  return {v:2,users:[],
-    settings:{usdRate:1000,rateDate:todayISO(),catG:[...CAT_G],catI:[...CAT_I]},
+  return {v:3,users:[],
+    settings:{usdRate:1000,rateDate:todayISO(),dolarCasa:'oficial',catG:[...CAT_G],catI:[...CAT_I]},
+    market:{dolares:[],px:{},updated:null,error:null},
     tx:[],rec:[],debts:[],boxes:[],fds:[],holds:[]};
 }
 function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
@@ -411,6 +424,82 @@ function fechaCorta(iso){const [y,m,d]=iso.split('-');return d+' '+MES3[+m-1]}
 function ymLbl(ym){const [y,m]=ym.split('-');return MESES[+m-1]+' '+y}
 function shiftYM(ym,n){const [y,m]=ym.split('-').map(Number);const d=new Date(y,m-1+n,1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')}
 function days(a,b){return Math.round((new Date(b)-new Date(a))/86400000)}
+
+/* ---------------- mercado (dólar y precios) ---------------- */
+let syncing=false;
+const pxKey=(tk,cur)=>tk+'|'+cur;
+const getPx=h=>(S.market.px||{})[pxKey(h.tk,h.cur)];
+function hora(iso){
+  if(!iso) return '—';
+  const d=new Date(iso), hoy=new Date();
+  const hh=String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+  return d.toDateString()===hoy.toDateString()? 'hoy '+hh
+    : String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+' '+hh;
+}
+async function getJSON(u,ms=9000){
+  const c=new AbortController(), t=setTimeout(()=>c.abort(),ms);
+  try{
+    const r=await fetch(u,{signal:c.signal,cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return await r.json();
+  }finally{clearTimeout(t)}
+}
+/* toma la cotización elegida y la deja como tipo de cambio de la app */
+function aplicarDolar(){
+  const c=S.settings.dolarCasa;
+  if(c==='manual') return;
+  const d=(S.market.dolares||[]).find(x=>x.casa===c);
+  if(d&&d.venta>0){S.settings.usdRate=d.venta;S.settings.rateDate=todayISO()}
+}
+async function syncMercado(manual){
+  if(syncing) return;
+  syncing=true; if(manual)pintarSync(true);
+  const M=S.market;
+  try{
+    M.dolares=(await getJSON(API.dolar)).map(x=>({
+      casa:x.casa,nombre:x.nombre,compra:x.compra,venta:x.venta,fecha:x.fechaActualizacion}));
+    aplicarDolar();
+
+    const auto=S.holds.filter(h=>h.auto!==false&&h.tk);
+    const enARS=auto.filter(h=>h.cur==='ARS'), enUSD=auto.filter(h=>h.cur==='USD');
+    M.px=M.px||{};
+    const cargar=async(urls,moneda,tenencias)=>{
+      if(!tenencias.length) return;
+      const listas=await Promise.all(urls.map(u=>getJSON(u).catch(()=>[])));
+      const map={}; listas.flat().forEach(x=>{if(x&&x.symbol)map[x.symbol]=x});
+      tenencias.forEach(h=>{
+        const r=map[h.tk];
+        /* la clave lleva la moneda: el CEDEAR de AAPL en pesos y la acción AAPL
+           en dólares son dos precios distintos y no se pueden pisar */
+        if(r&&Number(r.c)>0) M.px[pxKey(h.tk,moneda)]={v:Number(r.c),pct:Number(r.pct_change)||0,cur:moneda,ts:new Date().toISOString()};
+      });
+    };
+    await cargar(API.ars,'ARS',enARS);
+    await cargar(API.usd,'USD',enUSD);
+
+    S.holds.forEach(h=>{
+      const p=getPx(h);
+      if(h.auto!==false&&p&&p.v>0) h.now=p.v;
+    });
+    M.updated=new Date().toISOString(); M.error=null;
+    save();
+    if(manual){render(true);toast('Precios actualizados')}
+    else render(true);
+  }catch(e){
+    M.error = e.name==='AbortError' ? 'la consulta tardó demasiado'
+            : /fetch|network|load failed|networkerror/i.test(e.message||'') ? 'sin conexión a internet'
+            : (e.message||'error desconocido');
+    save();
+    if(manual){render(true);toast('No se pudo actualizar')} else pintarSync(false);
+  }finally{syncing=false}
+}
+function pintarSync(on){
+  document.querySelectorAll('[data-act=sync]').forEach(b=>{
+    b.disabled=on; b.textContent=on?'Actualizando…':'Actualizar ahora';
+  });
+}
+/* tickers sin precio automático (no cotizan o el símbolo no existe) */
+const sinAuto=()=>S.holds.filter(h=>h.auto!==false&&!getPx(h)).map(h=>h.tk);
 
 /* ---------------- scope ---------------- */
 function inScope(r){
@@ -591,16 +680,18 @@ function boot(){
   $('#setBtn').innerHTML=svg(IC.set);
   $('#nav').innerHTML=VIEWS.map(([k,l,i])=>`<button data-view="${k}">${svg(IC[i],1.5)}<span>${l}</span></button>`).join('');
   render();
+  syncMercado(false);   /* busca dólar y precios del día, en silencio */
 }
-function render(){
+function render(keepScroll){
   applyTheme();
+  const y=window.scrollY;
   $('#nav').querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.view===view));
   $('#setBtn').classList.toggle('on',view==='set');
   $('#chips').querySelectorAll('.chip').forEach(b=>b.classList.toggle('on',b.dataset.scope===scope));
   $('#curBtn').textContent=cur==='ARS'?'$ ARS':'US$';
   $('#main').innerHTML=({dash:vDash,mov:vMov,fijos:vFijos,ahorro:vAhorro,inv:vInv,set:vSet})[view]();
   $('#fab').classList.toggle('hide',!(view==='dash'||view==='mov'));
-  window.scrollTo({top:0});
+  window.scrollTo({top:keepScroll?y:0});
 }
 
 /* ============================================================
@@ -639,7 +730,7 @@ function vDash(){
       <div class="cell wide">
         <div class="klbl">Patrimonio neto</div>
         <div class="kval big num">${fmt(P.neto)}</div>
-        <div class="ksub">${cur==='ARS'?fmt(P.neto,'USD')+' al dólar de $'+rate():fmt(P.neto,'ARS')+' · dólar $'+rate()}</div>
+        <div class="ksub">${cur==='ARS'?fmt(P.neto,'USD'):fmt(P.neto,'ARS')} · dólar ${casaLbl(S.settings.dolarCasa).toLowerCase()} ${fmtRaw(rate(),'ARS')} · ${hora(S.market.updated)}</div>
       </div>
     </div>
     <div class="grid g4">
@@ -836,22 +927,31 @@ function vInv(){
 
   <div class="sect">
     <div class="sechead"><div class="sectitle">Acciones · CEDEARs · fondos</div><div class="hspace"></div>
+      <button class="btn sm" data-act="sync">Actualizar ahora</button>
       <button class="btn sm" data-act="newhold">+ Tenencia</button></div>
     ${H.length?`<div class="rows">
       <div class="rhead"><div>Activo</div><div style="text-align:right">Valor / resultado</div><div></div></div>
       ${H.map(h=>{
         const v=h.qty*h.now, c=h.qty*h.buy, d=v-c, r=c?d/c*100:0;
+        const p=getPx(h), vivo=h.auto!==false&&p;
         return `<div class="row" data-act="edithold" data-id="${h.id}">
           <div class="rmain">
-            <div class="rtitle">${esc(h.tk)} ${h.scope==='familiar'?'<span class="tag fam">Fam</span>':''}</div>
+            <div class="rtitle">${esc(h.tk)} ${h.scope==='familiar'?'<span class="tag fam">Fam</span>':''}
+              ${vivo?`<span class="tag ${p.pct>=0?'ok':''}" ${p.pct<0?'style="border-color:color-mix(in srgb,var(--neg) 40%,transparent);color:var(--neg)"':''}>${pct(p.pct)} hoy</span>`
+                    :'<span class="tag">Manual</span>'}</div>
             <div class="rsub">${esc(h.kind)} · ${h.qty} × ${fmtRaw(h.now,h.cur)}${h.name?' · '+esc(h.name):''}</div>
           </div>
           <div>
             <div class="ramt num">${fmtRaw(v,h.cur)}</div>
             <div class="rextra ${d>=0?'pos':'neg'}">${fmtRaw(d,h.cur)} · ${pct(r)}</div>
           </div>
-          <button class="btn sm rbtn" data-act="price" data-id="${h.id}">Actualizar precio</button>
-        </div>`}).join('')}</div>`
+          ${vivo?'':`<button class="btn sm rbtn" data-act="price" data-id="${h.id}">Actualizar precio</button>`}
+        </div>`}).join('')}</div>
+      <div class="help" style="margin-top:12px">
+        Precios de BYMA · última actualización ${hora(S.market.updated)}.
+        Se actualizan solos cada vez que abrís la app; entre las 11 y las 17 son los de la rueda, fuera de ese horario es el último cierre.
+        ${sinAuto().length?`<br><span class="warn">Sin cotización automática: ${sinAuto().map(esc).join(', ')}. Revisá el símbolo o dejá el precio en manual.</span>`:''}
+      </div>`
       :'<div class="empty">Sin tenencias cargadas</div>'}
   </div>`;
 }
@@ -888,14 +988,34 @@ function vSet(){
   </div>
 
   <div class="sect">
-    <div class="sechead"><div class="sectitle">Cotización del dólar</div></div>
-    <div class="panel">
+    <div class="sechead"><div class="sectitle">Cotización del dólar</div><div class="hspace"></div>
+      <button class="btn sm" data-act="sync">Actualizar ahora</button></div>
+    ${S.market.error?`<div class="alert">◆ <span>No se pudo actualizar (${esc(S.market.error)}). Estoy usando el último valor guardado.</span></div>`:''}
+    <div class="rows">
+      ${CASAS.filter(c=>c[0]!=='manual').map(([c,l])=>{
+        const d=(S.market.dolares||[]).find(x=>x.casa===c);
+        const on=S.settings.dolarCasa===c;
+        return `<div class="row" data-act="casa" data-c="${c}">
+          <div class="rmain"><div class="rtitle">${l} ${on?'<span class="tag ok">En uso</span>':''}</div>
+          <div class="rsub">${d?'Compra '+fmtRaw(d.compra,'ARS'):'sin datos todavía'}</div></div>
+          <div><div class="ramt num">${d?fmtRaw(d.venta,'ARS'):'—'}</div>
+          <div class="rextra">venta</div></div>
+        </div>`}).join('')}
+      <div class="row" data-act="casa" data-c="manual">
+        <div class="rmain"><div class="rtitle">Manual ${S.settings.dolarCasa==='manual'?'<span class="tag ok">En uso</span>':''}</div>
+        <div class="rsub">Lo cargás vos a mano</div></div>
+        <div><div class="ramt num">${S.settings.dolarCasa==='manual'?fmtRaw(S.settings.usdRate,'ARS'):'—'}</div></div>
+      </div>
+    </div>
+    ${S.settings.dolarCasa==='manual'?`<div class="panel" style="margin-top:12px">
       <div class="mrow">
         <div class="fld"><label class="up">Pesos por dólar</label>
           <input id="setRate" type="number" inputmode="decimal" step="0.01" value="${S.settings.usdRate}"></div>
         <div style="display:flex;align-items:flex-end"><button class="btn" data-act="saverate">Guardar</button></div>
-      </div>
-      <div class="help">Última actualización: ${fecha(S.settings.rateDate)}. Se usa para convertir todo a una sola moneda.</div>
+      </div></div>`:''}
+    <div class="help" style="margin-top:12px">
+      Última actualización: ${hora(S.market.updated)}. Se toma el valor de <b>venta</b> para convertir todo a una sola moneda.<br>
+      Los datos vienen de dolarapi.com y data912.com (precios de BYMA). La app solo pide la tabla de precios del día: no envía ninguna información tuya.
     </div>
   </div>
 
@@ -1230,7 +1350,7 @@ function formHold(id){
   const h=id?S.holds.find(x=>x.id===id):null;
   openForm({
     title:h?'Editar tenencia':'Nueva tenencia',
-    values:h||{kind:'CEDEAR'},
+    values:h?{...h,auto:h.auto===false?'no':'si'}:{kind:'CEDEAR',auto:'si'},
     del:h?del('holds',id):null, delMsg:'¿Borrar esta tenencia?',
     fields:[
       {k:'tk',label:'Ticker / símbolo',req:true,ph:'Ej: AAPL, GGAL',half:true},
@@ -1238,15 +1358,23 @@ function formHold(id){
       {k:'name',label:'Nombre (opcional)',ph:'Apple Inc.'},
       {k:'qty',label:'Cantidad',type:'number',step:'0.0001',req:true,half:true},
       {k:'buy',label:'Precio de compra',type:'number',step:'0.01',req:true,half:true},
-      {k:'now',label:'Precio actual',type:'number',step:'0.01',req:true,half:true},
-      {k:'cur',label:'Moneda',type:'seg',opts:[{v:'ARS',l:'Pesos'},{v:'USD',l:'US$'}],def:'ARS',half:true},
+      {k:'cur',label:'Moneda',type:'seg',opts:[{v:'ARS',l:'Pesos'},{v:'USD',l:'Dólares'}],def:'ARS'},
+      {k:'auto',label:'Precio actual',type:'seg',opts:[{v:'si',l:'Automático'},{v:'no',l:'Lo cargo yo'}],def:'si',
+       help:'Automático busca la cotización del día en BYMA usando el ticker. Para fondos comunes y activos que no cotizan, elegí "lo cargo yo".'},
+      {k:'now',label:'Precio actual (si es manual)',type:'number',step:'0.01',half:true},
       ownerF(),scopeF()
     ],
     onSave(v){
-      const o={id:h?h.id:uid(),tk:v.tk.toUpperCase(),name:v.name,kind:v.kind,qty:Number(v.qty),
-        buy:Number(v.buy),now:Number(v.now),cur:v.cur,owner:v.owner,scope:v.scope};
+      const tk=v.tk.toUpperCase().trim(), auto=v.auto!=='no';
+      const px=(S.market.px||{})[pxKey(tk,v.cur)];
+      let now=Number(v.now)||0;
+      if(auto&&px) now=px.v;
+      if(!now) now=h?h.now:0;
+      const o={id:h?h.id:uid(),tk,name:v.name,kind:v.kind,qty:Number(v.qty),
+        buy:Number(v.buy),now,cur:v.cur,auto,owner:v.owner,scope:v.scope};
       if(h)S.holds[S.holds.findIndex(x=>x.id===h.id)]=o; else S.holds.push(o);
       save();render();toast('Guardado');
+      if(auto&&!px) syncMercado(false);
     }
   });
 }
@@ -1354,6 +1482,9 @@ document.addEventListener('click',e=>{
     newbox:()=>formBox(), editbox:()=>formBox(id), boxmov:()=>boxMov(id,Number(b.dataset.s)),
     newfd:()=>formFD(), editfd:()=>formFD(id),
     newhold:()=>formHold(), edithold:()=>formHold(id), price:()=>formPrice(id),
+    sync:()=>syncMercado(true),
+    casa:()=>{S.settings.dolarCasa=b.dataset.c;aplicarDolar();save();render();
+      toast('Usando dólar '+casaLbl(b.dataset.c).toLowerCase())},
     saverate:()=>{const v=Number($('#setRate').value);
       if(v>0){S.settings.usdRate=v;S.settings.rateDate=todayISO();save();render();toast('Cotización actualizada')}},
     addcat:()=>formCat(b.dataset.t),

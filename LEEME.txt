@@ -84,6 +84,33 @@ Después de entrar te ofrece armar un PIN de 4 números para no tener
 que escribir la contraseña todos los días.
 
 
+PRECIOS AUTOMÁTICOS
+----------------------------------------------------------------
+Cada vez que abrís la app busca sola, por internet:
+
+  - Las 7 cotizaciones del dólar (oficial, blue, MEP, CCL,
+    mayorista, cripto y tarjeta). En Ajustes elegís cuál se usa
+    para convertir; viene con el oficial puesto.
+  - El precio del día de tus CEDEARs, acciones argentinas, bonos
+    y letras, tomado de BYMA.
+
+También podés forzarlo con el botón "Actualizar ahora", que está
+en Inversiones y en Ajustes.
+
+Detalles a tener en cuenta:
+  - El precio es el de la rueda de 11 a 17 hs. Fuera de ese
+    horario y los fines de semana, ves el último cierre.
+  - Los fondos comunes de inversión (FCI) y cualquier cosa que no
+    cotice en la bolsa no tienen precio automático. Al cargarlos,
+    elegí "lo cargo yo" y ponés el valor a mano.
+  - Si un activo tuyo tiene el símbolo mal escrito, la app te
+    avisa abajo de la lista de tenencias.
+  - Sin señal no se rompe nada: sigue mostrando el último valor
+    que consiguió y te aclara de cuándo es.
+  - La app pide la tabla de precios del día y nada más. No manda
+    ninguna información tuya a ningún lado.
+
+
 DOS COSAS IMPORTANTES
 ----------------------------------------------------------------
 1. LOS DATOS SON DE CADA TELÉFONO.

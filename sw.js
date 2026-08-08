@@ -1,7 +1,7 @@
 /* ORBIT · service worker
    La app entra en caché la primera vez, así abre al instante y funciona sin internet.
    Estrategia: red primero (para que lleguen las actualizaciones), caché como respaldo. */
-const CACHE = 'orbit-v2';
+const CACHE = 'orbit-v3';
 const ASSETS = [
   './',
   './index.html',
