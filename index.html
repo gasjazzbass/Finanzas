@@ -121,8 +121,11 @@ svg{display:block}
 
 /* ===================== SHELL ===================== */
 #app{min-height:100dvh;display:flex;flex-direction:column}
+/* el contenedor pegajoso NO lleva filtros: si los llevara, volvería a
+   capturar el position:fixed de la barra de pestañas */
+.topwrap{position:sticky;top:0;z-index:40}
 header{
-  position:sticky;top:0;z-index:40;background:color-mix(in srgb,var(--bg) 72%,transparent);
+  background:color-mix(in srgb,var(--bg) 72%,transparent);
   backdrop-filter:var(--glass);-webkit-backdrop-filter:var(--glass);border-bottom:1px solid var(--line);
   padding-top:env(safe-area-inset-top)
 }
@@ -175,9 +178,14 @@ main{flex:1;width:100%;max-width:1320px;margin:0 auto;
 @media(min-width:900px){
   .hrow{padding:14px 26px;gap:16px}
   .chips{padding:0 26px 0;overflow:visible}
-  header{display:flex;flex-direction:column}
+  header{display:flex;flex-direction:column;border-bottom:0}
   .hbar{display:flex;align-items:center;width:100%}
-  #nav{position:static;border-top:0;border-bottom:1px solid var(--line);
+  /* en pantalla grande la barra vuelve arriba, debajo del logo */
+  .topwrap{background:color-mix(in srgb,var(--bg) 72%,transparent);
+    backdrop-filter:var(--glass);-webkit-backdrop-filter:var(--glass);
+    border-bottom:1px solid var(--line)}
+  header{background:transparent;backdrop-filter:none;-webkit-backdrop-filter:none}
+  #nav{position:static;border-top:0;border-bottom:0;
     background:transparent;backdrop-filter:none;padding:0 26px;gap:30px}
   #nav button{flex:none;flex-direction:row;gap:9px;padding:13px 0;font-size:10px;letter-spacing:.16em;
     border-bottom:1px solid transparent}
@@ -352,23 +360,27 @@ main{flex:1;width:100%;max-width:1320px;margin:0 auto;
 <div id="auth"></div>
 
 <div id="app" class="hide">
-  <header>
-    <div class="hbar">
-      <div class="hrow">
-        <div class="hmark">ORBIT</div>
-        <div class="hspace"></div>
-        <button class="iconbtn curbtn num" data-act="curtog" id="curBtn">$ ARS</button>
-        <button class="iconbtn" data-act="go" data-v="set" title="Ajustes" id="setBtn"></button>
+  <!-- el nav va FUERA del header: un ancestro con backdrop-filter secuestra
+       el position:fixed de sus hijos y la barra queda pegada al header -->
+  <div class="topwrap">
+    <header>
+      <div class="hbar">
+        <div class="hrow">
+          <div class="hmark">ORBIT</div>
+          <div class="hspace"></div>
+          <button class="iconbtn curbtn num" data-act="curtog" id="curBtn">$ ARS</button>
+          <button class="iconbtn" data-act="go" data-v="set" title="Ajustes" id="setBtn"></button>
+        </div>
       </div>
-    </div>
-    <div class="chips" id="chips">
-      <button class="chip" data-scope="all">Todo</button>
-      <button class="chip" data-scope="mine">Míos</button>
-      <button class="chip" data-scope="fam">Familiar</button>
-      <span class="hspace"></span>
-    </div>
+      <div class="chips" id="chips">
+        <button class="chip" data-scope="all">Todo</button>
+        <button class="chip" data-scope="mine">Míos</button>
+        <button class="chip" data-scope="fam">Familiar</button>
+        <span class="hspace"></span>
+      </div>
+    </header>
     <nav id="nav"></nav>
-  </header>
+  </div>
   <main id="main"></main>
   <button class="fab hide" id="fab" data-act="newtx">+</button>
 </div>
