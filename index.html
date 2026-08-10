@@ -30,6 +30,12 @@
   --pos:#5fe3a1;--neg:#ff5f56;--warn:#ffcc4d;
   --solid:#fff;--onsolid:#000;--hover:#0b0b0b;--track:#1c1c1c;
   --shadow:none;
+  --seg:#141414;--sheet:#0c0c0c;
+  /* movimiento: las curvas que usa iOS para hojas y transiciones */
+  --ease:cubic-bezier(.32,.72,0,1);
+  --ease-out:cubic-bezier(.22,.61,.36,1);
+  --r:12px;--r-sm:9px;--r-lg:20px;
+  --glass:saturate(180%) blur(22px);
 }
 :root[data-theme="light"]{
   --bg:#fff;--panel:#fbfbfb;--panel2:#f3f3f3;--line:rgba(0,0,0,.13);--line2:rgba(0,0,0,.07);
@@ -37,6 +43,7 @@
   --pos:#0a8f52;--neg:#d92d20;--warn:#a06800;
   --solid:#000;--onsolid:#fff;--hover:#f6f6f6;--track:#e6e6e6;
   --shadow:0 1px 2px rgba(0,0,0,.04);
+  --seg:#eeeeef;--sheet:#fbfbfd;
 }
 html{-webkit-text-size-adjust:100%}
 body{
@@ -74,11 +81,12 @@ svg{display:block}
   background-image:linear-gradient(45deg,transparent 50%,var(--dim) 50%),linear-gradient(135deg,var(--dim) 50%,transparent 50%);
   background-position:calc(100% - 12px) 20px,calc(100% - 7px) 20px;background-size:5px 5px;background-repeat:no-repeat}
 .btn{
-  border:1px solid var(--line);padding:14px 22px;font-size:10px;
-  text-transform:uppercase;letter-spacing:.2em;transition:.16s;text-align:center;width:100%;
-  min-height:46px;display:inline-flex;align-items:center;justify-content:center;gap:8px
+  border:1px solid var(--line);padding:14px 22px;font-size:10px;border-radius:var(--r-sm);
+  text-transform:uppercase;letter-spacing:.2em;text-align:center;width:100%;
+  min-height:46px;display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  transition:transform .22s var(--ease),background .18s,color .18s,border-color .18s,opacity .18s
 }
-.btn:active{transform:scale(.985)}
+.btn:active{transform:scale(.955)}
 @media(hover:hover){.btn:hover{background:var(--solid);color:var(--onsolid);border-color:var(--solid)}}
 .btn.solid{background:var(--solid);color:var(--onsolid);border-color:var(--solid)}
 @media(hover:hover){.btn.solid:hover{opacity:.82}}
@@ -103,18 +111,19 @@ svg{display:block}
 @keyframes shake{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
 .keys{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:290px;margin:0 auto}
 .keys button{
-  height:64px;border:1px solid var(--line);font-size:22px;font-weight:200;
-  display:flex;align-items:center;justify-content:center;transition:.12s
+  height:64px;border:1px solid var(--line);font-size:22px;font-weight:200;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  transition:transform .2s var(--ease),background .16s,color .16s
 }
-.keys button:active{background:var(--solid);color:var(--onsolid)}
+.keys button:active{background:var(--solid);color:var(--onsolid);transform:scale(.9)}
 .keys button.blank{border-color:transparent;pointer-events:none}
 .keys button.fn{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
 
 /* ===================== SHELL ===================== */
 #app{min-height:100dvh;display:flex;flex-direction:column}
 header{
-  position:sticky;top:0;z-index:40;background:color-mix(in srgb,var(--bg) 88%,transparent);
-  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:1px solid var(--line);
+  position:sticky;top:0;z-index:40;background:color-mix(in srgb,var(--bg) 72%,transparent);
+  backdrop-filter:var(--glass);-webkit-backdrop-filter:var(--glass);border-bottom:1px solid var(--line);
   padding-top:env(safe-area-inset-top)
 }
 .hrow{display:flex;align-items:center;gap:12px;padding:12px 18px}
@@ -124,14 +133,18 @@ header{
 .chips::-webkit-scrollbar{display:none}
 .chip{
   font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);
-  border:1px solid var(--line);padding:7px 13px;white-space:nowrap;transition:.15s;border-radius:999px
+  border:1px solid var(--line);padding:7px 13px;white-space:nowrap;border-radius:999px;
+  transition:background .25s var(--ease),color .2s,border-color .2s,transform .22s var(--ease)
 }
+.chip:active{transform:scale(.93)}
 .chip.on{background:var(--solid);color:var(--onsolid);border-color:var(--solid)}
 .iconbtn{
   width:38px;height:38px;flex:none;display:flex;align-items:center;justify-content:center;
-  border:1px solid var(--line);color:var(--dim);transition:.15s;border-radius:0
+  border:1px solid var(--line);color:var(--dim);border-radius:var(--r-sm);
+  transition:color .2s,border-color .2s,transform .22s var(--ease)
 }
 .iconbtn svg{width:17px;height:17px}
+.iconbtn:active{transform:scale(.9)}
 .iconbtn.on,.iconbtn:active{color:var(--txt);border-color:var(--solid)}
 .curbtn{font-size:10px;letter-spacing:.1em;min-width:52px;padding:0 6px}
 main{flex:1;width:100%;max-width:1320px;margin:0 auto;
@@ -139,16 +152,19 @@ main{flex:1;width:100%;max-width:1320px;margin:0 auto;
 /* tab bar inferior (celular) */
 #nav{
   position:fixed;left:0;right:0;bottom:0;z-index:50;display:flex;
-  background:color-mix(in srgb,var(--bg) 92%,transparent);
-  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  background:color-mix(in srgb,var(--bg) 74%,transparent);
+  backdrop-filter:var(--glass);-webkit-backdrop-filter:var(--glass);
   border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)
 }
 #nav button{
   flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;
-  padding:11px 2px 9px;color:var(--dim2);font-size:8.5px;letter-spacing:.09em;text-transform:uppercase;transition:.15s
+  padding:11px 2px 9px;color:var(--dim2);font-size:8.5px;letter-spacing:.09em;text-transform:uppercase;
+  transition:color .2s var(--ease-out),transform .3s var(--ease)
 }
-#nav button svg{width:21px;height:21px}
+#nav button svg{width:21px;height:21px;transition:transform .34s var(--ease)}
+#nav button:active{transform:scale(.93)}
 #nav button.on{color:var(--txt)}
+#nav button.on svg{transform:scale(1.09)}
 .fab{
   position:fixed;right:18px;bottom:calc(78px + env(safe-area-inset-bottom));z-index:45;
   width:54px;height:54px;border-radius:50%;background:var(--solid);color:var(--onsolid);
@@ -176,7 +192,8 @@ main{flex:1;width:100%;max-width:1320px;margin:0 auto;
 .sechead{display:flex;align-items:center;gap:12px;margin-bottom:14px}
 .sectitle{font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.18em}
 .sechead .hspace{flex:1}
-.grid{display:grid;gap:1px;background:var(--line2);border:1px solid var(--line)}
+.grid{display:grid;gap:1px;background:var(--line2);border:1px solid var(--line);
+  border-radius:var(--r);overflow:hidden}
 .g4{grid-template-columns:repeat(4,1fr)}
 .g3{grid-template-columns:repeat(3,1fr)}
 .g2{grid-template-columns:repeat(2,1fr)}
@@ -187,19 +204,21 @@ main{flex:1;width:100%;max-width:1320px;margin:0 auto;
 .kval{font-size:23px;font-weight:200;letter-spacing:-.01em}
 .kval.big{font-size:40px}
 .ksub{font-size:10px;color:var(--dim2);margin-top:6px}
-.panel{border:1px solid var(--line);background:var(--panel);padding:18px 16px;box-shadow:var(--shadow)}
+.panel{border:1px solid var(--line);background:var(--panel);padding:18px 16px;
+  box-shadow:var(--shadow);border-radius:var(--r)}
 .panel h3{font-size:9px;color:var(--dim);font-weight:400;text-transform:uppercase;letter-spacing:.18em;margin-bottom:16px}
 @media(min-width:900px){.cell{padding:20px}.panel{padding:22px}.kval{font-size:26px}.kval.big{font-size:44px}}
 
 /* ===================== FILAS (lista/tabla) ===================== */
-.rows{border:1px solid var(--line)}
+.rows{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--panel)}
 .rhead{display:none}
 .row{
   display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:center;
-  padding:13px 15px;border-bottom:1px solid var(--line2);transition:background .12s;cursor:pointer
+  padding:13px 15px;border-bottom:1px solid var(--line2);cursor:pointer;
+  transition:background .18s var(--ease-out),transform .24s var(--ease)
 }
 .row:last-child{border-bottom:0}
-.row:active{background:var(--hover)}
+.row:active{background:var(--hover);transform:scale(.988)}
 @media(hover:hover){.row:hover{background:var(--hover)}}
 .rmain{min-width:0}
 .rtitle{font-size:14.5px;font-weight:300;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
@@ -217,12 +236,15 @@ main{flex:1;width:100%;max-width:1320px;margin:0 auto;
   border:1px solid var(--line);padding:2px 6px;color:var(--dim);border-radius:2px}
 .tag.fam{border-color:color-mix(in srgb,var(--pos) 40%,transparent);color:var(--pos)}
 .tag.ok{border-color:color-mix(in srgb,var(--pos) 40%,transparent);color:var(--pos)}
-.empty{padding:40px 20px;text-align:center;color:var(--dim2);font-size:10px;letter-spacing:.14em;text-transform:uppercase;border:1px solid var(--line)}
+.empty{padding:40px 20px;text-align:center;color:var(--dim2);font-size:10px;letter-spacing:.14em;
+  text-transform:uppercase;border:1px solid var(--line);border-radius:var(--r)}
 
 /* ===================== CARDS ===================== */
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px}
-.card{border:1px solid var(--line);background:var(--panel);padding:17px;display:flex;flex-direction:column;gap:11px;cursor:pointer;box-shadow:var(--shadow)}
-.card:active{background:var(--hover)}
+.card{border:1px solid var(--line);background:var(--panel);padding:17px;display:flex;flex-direction:column;
+  gap:11px;cursor:pointer;box-shadow:var(--shadow);border-radius:var(--r);
+  transition:background .18s var(--ease-out),transform .26s var(--ease)}
+.card:active{background:var(--hover);transform:scale(.982)}
 .ctop{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
 .cname{font-size:15.5px;font-weight:300;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .cmeta{font-size:9px;color:var(--dim);letter-spacing:.12em;text-transform:uppercase;margin-top:5px}
@@ -235,30 +257,39 @@ main{flex:1;width:100%;max-width:1320px;margin:0 auto;
 .cbtns .btn{flex:1}
 
 /* ===================== MODAL / SHEET ===================== */
-.ovl{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(3px);z-index:90;
-  display:flex;align-items:flex-end;justify-content:center;overflow-y:auto;animation:fade .16s}
-:root[data-theme="light"] .ovl{background:rgba(0,0,0,.35)}
+.ovl{position:fixed;inset:0;background:rgba(0,0,0,.45);
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:90;
+  display:flex;align-items:flex-end;justify-content:center;overflow-y:auto;animation:fade .3s var(--ease-out)}
+:root[data-theme="light"] .ovl{background:rgba(0,0,0,.25)}
 @keyframes fade{from{opacity:0}}
 .modal{
-  background:var(--bg);border:1px solid var(--line);width:100%;max-width:520px;
-  padding:24px 20px calc(26px + env(safe-area-inset-bottom));animation:up .22s cubic-bezier(.2,.8,.3,1);
-  max-height:94dvh;overflow-y:auto
+  background:var(--sheet);border:1px solid var(--line);border-bottom:0;width:100%;max-width:520px;
+  border-radius:var(--r-lg) var(--r-lg) 0 0;overscroll-behavior:contain;
+  padding:14px 20px calc(26px + env(safe-area-inset-bottom));
+  animation:up .42s var(--ease);max-height:94dvh;overflow-y:auto
 }
-@keyframes up{from{transform:translateY(28px);opacity:.4}}
+@keyframes up{from{transform:translateY(100%)}}
 .modal h2{font-size:10px;font-weight:400;text-transform:uppercase;letter-spacing:.2em;color:var(--dim);margin-bottom:20px}
-.grab{width:34px;height:3px;background:var(--track);margin:-8px auto 16px;border-radius:2px}
+.grab{width:38px;height:5px;background:var(--track);margin:0 auto 18px;border-radius:3px}
 .mform{display:flex;flex-direction:column;gap:18px}
 .mrow{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .mact{display:flex;gap:10px;margin-top:4px}
-.segf{display:flex;border:1px solid var(--line)}
-.segf button{flex:1;padding:12px 6px;font-size:9px;text-transform:uppercase;letter-spacing:.13em;color:var(--dim);transition:.14s}
+/* control segmentado al estilo iOS: fondo hundido y píldora que se desliza */
+.segf{display:flex;background:var(--seg);border-radius:var(--r-sm);padding:3px;gap:3px}
+.segf button{
+  flex:1;padding:10px 6px;font-size:9px;text-transform:uppercase;letter-spacing:.13em;
+  color:var(--dim);border-radius:calc(var(--r-sm) - 2px);
+  transition:color .25s var(--ease-out),background .3s var(--ease),transform .22s var(--ease)
+}
+.segf button:active{transform:scale(.95)}
 .segf button.on{background:var(--solid);color:var(--onsolid)}
 .help{font-size:10.5px;color:var(--dim2);margin-top:6px;line-height:1.6}
 @media(min-width:900px){
   .ovl{align-items:center;padding:20px}
-  .modal{animation:pop .18s}
+  .modal{animation:pop .3s var(--ease);border-radius:var(--r-lg);border-bottom:1px solid var(--line);
+    padding-top:24px}
   .grab{display:none}
-  @keyframes pop{from{transform:scale(.97);opacity:0}}
+  @keyframes pop{from{transform:scale(.96);opacity:0}}
 }
 
 /* ===================== VARIOS ===================== */
@@ -278,14 +309,42 @@ main{flex:1;width:100%;max-width:1320px;margin:0 auto;
 .mnav .mlbl{font-size:11px;letter-spacing:.14em;text-transform:uppercase;min-width:120px;text-align:center}
 .toast{position:fixed;left:50%;transform:translateX(-50%);
   bottom:calc(100px + env(safe-area-inset-bottom));background:var(--solid);color:var(--onsolid);
-  padding:12px 22px;font-size:10px;text-transform:uppercase;letter-spacing:.18em;z-index:120;animation:tin .2s;max-width:88vw;text-align:center}
-@keyframes tin{from{opacity:0;transform:translate(-50%,10px)}}
+  padding:13px 24px;font-size:10px;text-transform:uppercase;letter-spacing:.18em;z-index:120;
+  border-radius:999px;animation:tin .42s var(--ease);max-width:88vw;text-align:center;
+  box-shadow:0 8px 30px rgba(0,0,0,.35)}
+@keyframes tin{from{opacity:0;transform:translate(-50%,26px) scale(.9)}}
+.toast.out{animation:tout .3s var(--ease-out) forwards}
+@keyframes tout{to{opacity:0;transform:translate(-50%,14px) scale(.94)}}
 @media(min-width:900px){.toast{bottom:26px}}
 .themerow{display:flex;gap:8px}
 .themerow button{flex:1;border:1px solid var(--line);padding:14px 8px;font-size:9px;
   text-transform:uppercase;letter-spacing:.13em;color:var(--dim);display:flex;flex-direction:column;align-items:center;gap:8px}
 .themerow button svg{width:18px;height:18px}
+.themerow button{border-radius:var(--r-sm);transition:border-color .2s,color .2s,transform .22s var(--ease)}
+.themerow button:active{transform:scale(.95)}
 .themerow button.on{border-color:var(--solid);color:var(--txt)}
+
+/* entrada de cada pantalla, como el push de iOS */
+#main{animation:vista .34s var(--ease-out)}
+@keyframes vista{from{opacity:0;transform:translateY(8px)}}
+.sect{animation:vista .4s var(--ease-out) backwards}
+.sect:nth-child(2){animation-delay:.03s}
+.sect:nth-child(3){animation-delay:.06s}
+.sect:nth-child(4){animation-delay:.09s}
+
+/* interruptor tipo iOS */
+.sw{width:50px;height:30px;border-radius:999px;background:var(--track);position:relative;
+  flex:none;transition:background .32s var(--ease);cursor:pointer}
+.sw i{position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;
+  background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.3);transition:transform .34s var(--ease)}
+.sw.on{background:var(--pos)}
+.sw.on i{transform:translateX(20px)}
+.swrow{display:flex;align-items:center;justify-content:space-between;gap:14px}
+.swrow .t{font-size:14px;font-weight:300}
+
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}
+}
 </style>
 </head>
 <body>
@@ -389,6 +448,28 @@ async function hashPw(pw,salt){
   let h=5381; const s=salt+'::'+pw;
   for(let i=0;i<s.length;i++){h=((h*33)^s.charCodeAt(i))>>>0}
   return 'fb'+h.toString(16);
+}
+
+/* ============================================================
+   VIBRACIÓN
+   Cada gesto tiene su pulso, como el motor háptico de un iPhone.
+   Android lo reproduce tal cual; se puede apagar desde Ajustes.
+   ============================================================ */
+const HAP='orbit_hap';
+const hapOn=()=>lsGet(HAP)!=='no';
+const PULSOS={
+  tap:8,      /* tocar un botón            */
+  key:5,      /* teclear                   */
+  sel:12,     /* elegir una opción         */
+  nav:6,      /* cambiar de pantalla       */
+  abrir:10,   /* abrir una ventana         */
+  ok:[10,45,20],   /* guardado con éxito   */
+  warn:[18,60,18], /* algo que confirmar   */
+  err:[30,60,30]   /* error                */
+};
+function hap(t){
+  if(!hapOn()||!navigator.vibrate) return;
+  try{ navigator.vibrate(PULSOS[t]!==undefined?PULSOS[t]:PULSOS.tap) }catch(e){}
 }
 
 /* ---------------- tema ---------------- */
@@ -924,7 +1005,7 @@ function pinPress(k){
         pinBuf=''; dots.classList.add('bad');
         [...dots.children].forEach(c=>c.classList.remove('on'));
         $('#aerr').textContent='PIN incorrecto';
-        if(navigator.vibrate)navigator.vibrate(60);
+        hap('err');
       }
     });
   }
@@ -1382,6 +1463,15 @@ function vSet(){
       </div>
     </div>
     <div class="panel" style="margin-top:12px">
+      <h3>Vibración</h3>
+      <div class="swrow">
+        <span class="t">Respuesta al tacto</span>
+        <div class="sw ${hapOn()?'on':''}" data-act="haptog"><i></i></div>
+      </div>
+      <div class="help">Un pulso corto al tocar, uno doble al guardar y uno largo al borrar.
+      ${navigator.vibrate?'':'<br><span class="warn">Este dispositivo no permite vibrar desde el navegador.</span>'}</div>
+    </div>
+    <div class="panel" style="margin-top:12px">
       <h3>Acceso rápido</h3>
       ${d.pin?`<div class="crow" style="margin-bottom:14px"><span>PIN activado para ${esc(userName(d.uid))}</span><span class="pos">✓</span></div>
         <div class="cbtns"><button class="btn sm" data-act="pinnew">Cambiar PIN</button>
@@ -1591,6 +1681,7 @@ function openForm(o){
 }
 function closeForm(){$('#modalRoot').innerHTML=''}
 function confirmar(msg,fn){
+  hap('warn');
   $('#modalRoot').innerHTML=`<div class="ovl"><div class="modal" style="max-width:400px">
     <div class="grab"></div><h2>Confirmar</h2>
     <div style="font-size:14px;font-weight:300;line-height:1.6">${msg}</div>
@@ -1601,8 +1692,10 @@ function confirmar(msg,fn){
   $('#modalRoot').querySelector('[data-x=ok]').onclick=()=>{closeForm();fn()};
 }
 function toast(m){
+  hap(/no se pudo|inválido|invalido|error/i.test(m)?'err':'ok');
   const d=document.createElement('div'); d.className='toast'; d.textContent=m;
-  document.body.appendChild(d); setTimeout(()=>d.remove(),1900);
+  document.body.appendChild(d);
+  setTimeout(()=>{d.classList.add('out'); setTimeout(()=>d.remove(),300)},1700);
 }
 const ownerF=()=>({k:'owner',label:'Titular',type:'select',
   opts:S.users.map(u=>({v:enNube()?u.name:u.id,l:u.name})),def:miId(),half:true});
@@ -1893,9 +1986,10 @@ function importar(){
    EVENTOS
    ============================================================ */
 document.addEventListener('click',e=>{
-  const kb=e.target.closest('#keys button[data-k]'); if(kb){pinPress(kb.dataset.k);return}
-  const nb=e.target.closest('#nav button'); if(nb){view=nb.dataset.view;render();return}
-  const cb=e.target.closest('#chips .chip'); if(cb&&cb.dataset.scope){scope=cb.dataset.scope;render();return}
+  const kb=e.target.closest('#keys button[data-k]'); if(kb){hap('key');pinPress(kb.dataset.k);return}
+  const nb=e.target.closest('#nav button'); if(nb){hap('nav');view=nb.dataset.view;render();return}
+  const cb=e.target.closest('#chips .chip'); if(cb&&cb.dataset.scope){hap('sel');scope=cb.dataset.scope;render();return}
+  const sf=e.target.closest('.segf button'); if(sf) hap('sel');
   const b=e.target.closest('[data-act]'); if(!b)return;
   const a=b.dataset.act, id=b.dataset.id;
   const A={
@@ -1919,6 +2013,7 @@ document.addEventListener('click',e=>{
     per:()=>{dashPer=b.dataset.p;render()},
     mv:()=>{mvYM=shiftYM(mvYM,Number(b.dataset.d));render()},
     theme:()=>setTheme(b.dataset.t),
+    haptog:()=>{lsSet(HAP,hapOn()?'no':'si');render(true);if(hapOn())hap('ok')},
     pinnew:askPin,
     pinoff:()=>confirmar('¿Quitar el PIN de este dispositivo? Vas a entrar con mail y contraseña.',()=>{lsDel(DEV);render();toast('PIN quitado')}),
     install:howInstall,
@@ -1941,8 +2036,17 @@ document.addEventListener('click',e=>{
     wipe:()=>confirmar('Se borran TODOS los datos y los usuarios de este dispositivo. Vas a tener que configurar la app de cero.',()=>{
       lsDel(LS);lsDel(SESS);lsDel(DEV);S=blank();me=null;renderAuth()})
   };
-  if(A[a]){e.preventDefault();A[a]()}
+  if(A[a]){
+    /* el pulso lo elige la acción: abrir, confirmar o simplemente tocar */
+    hap(/^(del|wipe|logout|desconectar|pinoff)/.test(a)?'warn'
+       :/^(new|edit|imp|exp|conectar|addcat|chpw|minombre|install|price|boxmov)/.test(a)?'abrir':'tap');
+    e.preventDefault();A[a]();
+  }
 });
+/* al escribir dentro de la app */
+document.addEventListener('keydown',e=>{
+  if(e.target.matches('input,textarea')&&e.key.length===1) hap('key');
+},true);
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeForm()});
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e});
 
