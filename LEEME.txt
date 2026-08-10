@@ -86,6 +86,12 @@ que escribir la contraseña todos los días.
 
 SUMAR EL SEGUNDO TELÉFONO
 ----------------------------------------------------------------
+>>> Si vas a usar la BASE COMPARTIDA, saltá esta sección entera y
+>>> seguí el archivo NUBE.txt. Con la base compartida los dos ven
+>>> lo mismo al instante y no hace falta pasarse ningún archivo.
+
+Lo que sigue es para cuando cada teléfono lleva sus propios datos.
+
 Las cuentas viven en el teléfono donde se crearon, no en internet.
 Por eso, en el segundo teléfono la app arranca vacía y pide crear
 las cuentas de nuevo. Para evitar eso:

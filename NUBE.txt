@@ -1,0 +1,195 @@
+ORBIT · BASE COMPARTIDA
+================================================================
+Cómo hacer que los dos vean la misma información en tiempo real.
+
+Como el plan gratuito de Supabase permite solo 2 proyectos y ya
+los tenés ocupados, ORBIT se instala DENTRO del proyecto
+
+        sueldos-bucor
+
+No te asustes: no toca absolutamente nada de la app de sueldos.
+Todas las tablas nuevas se llaman orbit_algo, y el script no
+modifica ninguna tabla, función ni disparador existente.
+
+>>> NO uses el proyecto de bucor-evaluaciones. <<<
+Ese queda intacto y reservado para el sistema de la fundación.
+
+Lo hacés vos entero, de la computadora, en unos 15 minutos.
+Samanta después solo pega dos textos en su teléfono.
+
+
+PARTE 1 · CREAR LAS TABLAS
+================================================================
+
+1. Entrá a supabase.com y abrí el proyecto sueldos-bucor.
+   Verificá que sea el correcto: la dirección empieza con
+   bsngvfqtc... (NO el que empieza con hvzcofork..., ese es el
+   de evaluaciones).
+
+2. En el menú de la izquierda entrá a "SQL Editor" y tocá
+   "New query".
+
+3. Abrí el archivo supabase.sql (está en la carpeta de la app) y
+   copiá TODO el contenido.
+
+4. Pegalo en el editor. ANTES DE EJECUTAR, buscá estas dos líneas
+   arriba de todo y cambiá los mails por los de ustedes dos:
+
+        ('gaspar@ejemplo.com'),
+        ('samanta@ejemplo.com')
+
+   Poné los mails exactos con los que van a entrar a la app.
+   Son los ÚNICOS dos que van a poder ver las finanzas.
+
+5. Tocá "Run" (o Ctrl + Enter).
+   Tiene que decir "Success. No rows returned".
+
+Si más adelante querés sumar o sacar a alguien, se hace desde el
+mismo SQL Editor:
+
+    insert into orbit_invitados values ('otro@mail.com');
+    delete from orbit_invitados where email = 'otro@mail.com';
+
+
+PARTE 2 · PERMITIR ENTRAR SIN CONFIRMAR EL MAIL
+================================================================
+
+6. En el menú de la izquierda entrá a "Authentication".
+
+7. Buscá la sección de proveedores de ingreso ("Sign In / Providers"
+   o "Providers") y abrí "Email".
+
+8. Fijate cómo está la opción de confirmar el mail
+   ("Confirm email" / "Verify email").
+
+   Esta opción es del proyecto entero, así que también alcanza a
+   la app de sueldos. Si ya está apagada, no toques nada. Si está
+   encendida, tenés dos caminos:
+     - Apagarla (lo más simple), o
+     - Dejarla y confirmar el mail desde el correo al crear la
+       cuenta. También funciona.
+
+   Como en sueldos los usuarios ya están creados, apagarla no le
+   cambia nada a esa app: solo afecta a las altas nuevas.
+
+
+PARTE 3 · COPIAR LAS DOS CLAVES
+================================================================
+
+9. Abajo en el menú entrá a "Settings" y después a "API Keys"
+   (puede aparecer como "API", o dentro del botón "Connect").
+
+10. Copiá estos dos textos:
+
+    a) PROJECT URL
+       Empieza con https://bsngvfqtc... y termina en .supabase.co
+
+    b) LA CLAVE PÚBLICA
+       Aparece como "Publishable key" (empieza con sb_publishable_)
+       o como "anon public" (texto largo que empieza con eyJ).
+       Cualquiera de las dos sirve.
+
+    Atajo: las dos ya están adentro del index.html de la app de
+    sueldos (la carpeta "Sueldos Bucor - App"). Si te resulta más
+    fácil, abrilo con el Bloc de notas y buscá "supabase".
+
+    LA QUE DICE "secret" O "service_role" NO VA NUNCA EN LA APP.
+    Esa abre la base entera sin contraseña. La app te frena si la
+    pegás por error, pero mejor ni tocarla.
+
+
+PARTE 4 · CONECTAR TU TELÉFONO
+================================================================
+
+11. Abrí la app: https://gasjazzbass.github.io/Finanzas/
+
+12. Tocá "Conectar con la base compartida".
+
+13. Pegá el Project URL y la clave pública. Tocá "Conectar".
+
+14. Ahora tenés dos opciones:
+
+    - Si el mail que pusiste en la lista de invitados es el mismo
+      con el que entrás a la app de sueldos, ya tenés cuenta:
+      tocá "Ingresar" y usá esa misma contraseña.
+
+    - Si es otro mail, tocá "Crear mi cuenta" y poné tu nombre,
+      el mail y una contraseña de 6 caracteres o más.
+
+15. Al entrar, la app sube sola todo lo que ya tenías cargado y
+    te avisa cuántos registros subió.
+
+16. Revisá en Ajustes que tu nombre sea el correcto ("Gaspar" y no
+    "gasjazzbass"). Si no lo es, tocá "Mi nombre" y cambialo: se
+    corrigen también todos los gastos ya cargados a tu nombre.
+
+
+PARTE 5 · EL TELÉFONO DE SAMANTA
+================================================================
+
+17. Mandale por WhatsApp:
+    - El link de la app
+    - El Project URL
+    - La clave pública
+
+    Esos dos textos no son secretos: sin un mail de la lista de
+    invitados no abren nada. Igual, no hace falta publicarlos.
+
+18. Ella abre el link, toca "Conectar con la base compartida",
+    pega los dos textos y toca "Crear mi cuenta".
+
+19. IMPORTANTE: que use el mismo mail que pusiste en la lista de
+    invitados, y que escriba su nombre igual que como figura en
+    tus gastos (si cargaste cosas a nombre de "Samanta", que ponga
+    "Samanta"). Así esos movimientos le quedan asignados.
+
+20. Listo. Los dos ven lo mismo.
+
+
+POR QUÉ ESTO NO AFECTA A LA APP DE SUELDOS
+================================================================
+
+- Las tablas nuevas se llaman orbit_invitados, orbit_perfiles y
+  orbit_registros. La app de sueldos no las mira.
+
+- El script no toca ninguna de sus tablas (profes, liquidaciones,
+  conceptos, aumentos, sedes, meses, settings, profe_conceptos,
+  profe_sedes) ni los disparadores de usuarios.
+
+- Si alguien más tiene cuenta en ese proyecto para usar sueldos,
+  la app de finanzas lo rechaza: su mail no está en la lista de
+  invitados y no ve ni un solo dato. Está probado.
+
+- Y bucor-evaluaciones queda completamente aparte: es otro
+  proyecto, otra base y otros usuarios. No se toca nada de ahí.
+
+Un efecto secundario bueno: Supabase pausa los proyectos gratuitos
+que pasan una semana sin uso. Si sueldos se usa una vez por mes
+para liquidar, ese proyecto se estaba pausando solo. Con ORBIT
+entrando todos los días, va a quedar siempre despierto.
+
+Lo único a tener en cuenta: las dos apps comparten el mismo
+espacio de 500 MB. Para liquidaciones y gastos de dos personas
+sobra muchísimo, pero exportá el backup de vez en cuando desde
+Ajustes.
+
+
+CÓMO FUNCIONA A PARTIR DE ACÁ
+================================================================
+
+- Todo se guarda primero en tu teléfono y se sube enseguida. En el
+  otro teléfono aparece en menos de medio minuto, o al instante si
+  la otra persona abre la app en ese momento.
+
+- Sin señal la app funciona igual: guarda todo y lo sube cuando
+  vuelve internet. En Ajustes ves el estado de la sincronización.
+
+- El PIN de 4 números sigue funcionando igual.
+
+- En Ajustes tenés "Sincronizar ahora" si querés forzarlo.
+
+- La cotización del dólar y los precios de los CEDEARs los busca
+  cada teléfono por su cuenta; no viajan por la base.
+
+- Si dos personas editan el MISMO registro al mismo tiempo, queda
+  el último que se guardó. Con dos personas es muy difícil que pase.

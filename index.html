@@ -376,7 +376,7 @@ function load(){
   const b=blank(); for(const k in b) if(S[k]===undefined) S[k]=b[k];
   for(const k in b.settings) if(S.settings[k]===undefined) S.settings[k]=b.settings[k];
 }
-const save=()=>lsSet(LS,JSON.stringify(S));
+const save=()=>{lsSet(LS,JSON.stringify(S));if(typeof tocar==='function')tocar()};
 const dev=()=>{try{return JSON.parse(lsGet(DEV))||{}}catch(e){return {}}};
 const devSave=o=>lsSet(DEV,JSON.stringify(o));
 
@@ -504,14 +504,260 @@ function pintarSync(on){
 /* tickers sin precio automático (no cotizan o el símbolo no existe) */
 const sinAuto=()=>S.holds.filter(h=>h.auto!==false&&!getPx(h)).map(h=>h.tk);
 
+/* ============================================================
+   NUBE · base compartida (Supabase por REST, sin librerías)
+   ------------------------------------------------------------
+   Todo se guarda primero en el teléfono y después se sincroniza.
+   Si no hay señal la app funciona igual y sube los cambios al volver.
+   ============================================================ */
+const CLOUD='orbit_cloud', SB='orbit_sb', SNAP='orbit_snap', PULL='orbit_pull';
+const COLS=['tx','rec','debts','boxes','fds','holds'];   /* colecciones que viajan */
+let sbSes=null, cloudCfg=null, syncTimer=null, syncing2=false, syncEstado='';
+
+function cargarNube(){
+  try{cloudCfg=JSON.parse(lsGet(CLOUD))||null}catch(e){cloudCfg=null}
+  try{sbSes=JSON.parse(lsGet(SB))||null}catch(e){sbSes=null}
+}
+const enNube=()=>!!(cloudCfg&&cloudCfg.url&&cloudCfg.key);
+const conectado=()=>enNube()&&!!(sbSes&&sbSes.refresh_token);
+
+/* ---- llamadas ---- */
+async function sbFetch(path,opt={},reintento){
+  const u=cloudCfg.url.replace(/\/+$/,'')+path;
+  const h=Object.assign({
+    'apikey':cloudCfg.key,
+    'Content-Type':'application/json'
+  },opt.headers||{});
+  if(sbSes&&sbSes.access_token&&!opt.anon) h['Authorization']='Bearer '+sbSes.access_token;
+  const c=new AbortController(), t=setTimeout(()=>c.abort(),15000);
+  let r;
+  try{ r=await fetch(u,Object.assign({},opt,{headers:h,signal:c.signal})) }
+  finally{ clearTimeout(t) }
+  if(r.status===401&&!reintento&&sbSes&&sbSes.refresh_token){
+    if(await refrescarSesion()) return sbFetch(path,opt,true);
+  }
+  const txt=await r.text();
+  let j=null; try{j=txt?JSON.parse(txt):null}catch(e){}
+  if(!r.ok) throw new Error((j&&(j.msg||j.message||j.error_description||j.error))||('HTTP '+r.status));
+  return j;
+}
+function guardarSesion(j){
+  const meta=(j.user&&(j.user.user_metadata||j.user.raw_user_meta_data))||{};
+  const antes=sbSes||{};
+  sbSes={access_token:j.access_token,refresh_token:j.refresh_token,
+    user:{id:j.user.id,email:j.user.email,nombre:meta.nombre||''},
+    nombre:antes.nombre,hogar:antes.hogar,ultima:antes.ultima};
+  lsSet(SB,JSON.stringify(sbSes));
+}
+async function refrescarSesion(){
+  try{
+    const j=await sbFetch('/auth/v1/token?grant_type=refresh_token',
+      {method:'POST',anon:true,body:JSON.stringify({refresh_token:sbSes.refresh_token})});
+    guardarSesion(j); return true;
+  }catch(e){ return false }
+}
+async function nubeLogin(email,pass,nombre){
+  const j=await sbFetch('/auth/v1/token?grant_type=password',
+    {method:'POST',anon:true,body:JSON.stringify({email,password:pass})});
+  guardarSesion(j);
+  await cargarPerfiles(nombre);
+  return true;
+}
+/* cambiar cómo me ve el otro (y cómo se firman mis gastos) */
+async function cambiarNombre(nuevo){
+  await sbFetch('/rest/v1/orbit_perfiles?user_id=eq.'+sbSes.user.id,
+    {method:'PATCH',headers:{'Prefer':'return=minimal'},body:JSON.stringify({nombre:nuevo})});
+  const antes=me.name;
+  COLS.forEach(k=>S[k].forEach(o=>{if(o.owner===antes)o.owner=nuevo}));
+  me.name=nuevo; sbSes.nombre=nuevo; lsSet(SB,JSON.stringify(sbSes));
+  const u=S.users.find(x=>x.id===me.id); if(u)u.name=nuevo;
+  save();
+}
+async function cargarPerfiles(nombreDeseado){
+  const pedir=()=>sbFetch('/rest/v1/orbit_perfiles?select=user_id,nombre,hogar');
+  let p;
+  try{ p=await pedir() }
+  catch(e){
+    throw new Error(/does not exist|PGRST205|relation/i.test(e.message)
+      ? 'Falta correr el archivo supabase.sql en el SQL Editor del proyecto.'
+      : e.message);
+  }
+  let yo=(p||[]).find(x=>x.user_id===sbSes.user.id);
+  if(!yo){
+    /* primera entrada: me doy de alta. Si el mail no está en la lista
+       de invitados, la base rechaza el alta y no se ve absolutamente nada. */
+    const nombre=(nombreDeseado||sbSes.user.nombre||sbSes.user.email.split('@')[0]).trim();
+    try{
+      await sbFetch('/rest/v1/orbit_perfiles',{method:'POST',
+        headers:{'Prefer':'return=minimal'},
+        body:JSON.stringify({user_id:sbSes.user.id,hogar:'casa',nombre})});
+    }catch(e){
+      throw new Error(/row-level security|violates|403|42501/i.test(e.message)
+        ? 'Tu mail no figura en la lista de autorizados de la base. Agregalo a la tabla orbit_invitados y volvé a entrar.'
+        : e.message);
+    }
+    p=await pedir();
+    yo=(p||[]).find(x=>x.user_id===sbSes.user.id);
+  }
+  S.users=(p||[]).map(x=>({id:x.user_id,name:x.nombre,email:'',hogar:x.hogar}));
+  /* ojo: "yo" viene crudo de la base (user_id / nombre), no del formato de la app */
+  me=yo?{id:yo.user_id,name:yo.nombre,email:sbSes.user.email}
+       :{id:sbSes.user.id,name:sbSes.user.email.split('@')[0],email:sbSes.user.email};
+  sbSes.nombre=me.name; sbSes.hogar=yo?yo.hogar:null;
+  lsSet(SB,JSON.stringify(sbSes)); save();
+}
+
+/* ---- snapshot: lo último que sabemos que está en la nube ---- */
+const leerSnap=()=>{try{return JSON.parse(lsGet(SNAP))||{}}catch(e){return {}}};
+const grabarSnap=s=>lsSet(SNAP,JSON.stringify(s));
+const limpio=o=>{const c={...o};delete c._del;return JSON.stringify(c)};
+
+/* ---- subir lo que cambió acá ---- */
+async function empujar(){
+  const snap=leerSnap(), pend=[];
+  COLS.forEach(tipo=>{
+    (S[tipo]||[]).forEach(o=>{
+      const k=tipo+':'+o.id;
+      if(snap[k]!==limpio(o)) pend.push({id:o.id,hogar:sbSes.hogar,tipo,data:o,borrado:false});
+    });
+  });
+  /* lo que estaba y ya no está: se marca borrado */
+  Object.keys(snap).forEach(k=>{
+    const [tipo,id]=[k.slice(0,k.indexOf(':')),k.slice(k.indexOf(':')+1)];
+    if(COLS.includes(tipo)&&!(S[tipo]||[]).some(o=>o.id===id))
+      pend.push({id,hogar:sbSes.hogar,tipo,data:{id},borrado:true});
+  });
+  /* ajustes compartidos (categorías y qué dólar se usa) */
+  const conf={catG:S.settings.catG,catI:S.settings.catI,dolarCasa:S.settings.dolarCasa};
+  if(snap['config:config']!==JSON.stringify(conf))
+    pend.push({id:'config',hogar:sbSes.hogar,tipo:'config',data:conf,borrado:false});
+
+  if(!pend.length) return 0;
+  for(let i=0;i<pend.length;i+=100){
+    const lote=pend.slice(i,i+100);
+    await sbFetch('/rest/v1/orbit_registros',{method:'POST',
+      headers:{'Prefer':'resolution=merge-duplicates,return=minimal'},
+      body:JSON.stringify(lote)});
+    lote.forEach(r=>{
+      const k=r.tipo+':'+r.id;
+      if(r.borrado) delete snap[k];
+      else snap[k]=r.tipo==='config'?JSON.stringify(r.data):limpio(r.data);
+    });
+  }
+  grabarSnap(snap);
+  return pend.length;
+}
+
+/* ---- bajar lo que cambió del otro lado ---- */
+async function traer(){
+  const desde=lsGet(PULL)||'1970-01-01T00:00:00Z';
+  const filas=await sbFetch('/rest/v1/orbit_registros?select=*&updated_at=gt.'+
+    encodeURIComponent(desde)+'&order=updated_at.asc&limit=2000');
+  if(!filas||!filas.length) return 0;
+  const snap=leerSnap(); let cambios=0, ultima=desde;
+  filas.forEach(f=>{
+    if(f.updated_at>ultima) ultima=f.updated_at;
+    const k=f.tipo+':'+f.id;
+    if(f.tipo==='config'){
+      if(!f.borrado&&f.data){
+        S.settings.catG=f.data.catG||S.settings.catG;
+        S.settings.catI=f.data.catI||S.settings.catI;
+        if(f.data.dolarCasa) S.settings.dolarCasa=f.data.dolarCasa;
+        snap[k]=JSON.stringify({catG:S.settings.catG,catI:S.settings.catI,dolarCasa:S.settings.dolarCasa});
+        cambios++;
+      }
+      return;
+    }
+    if(!COLS.includes(f.tipo)) return;
+    const arr=S[f.tipo]; const i=arr.findIndex(o=>o.id===f.id);
+    if(f.borrado){
+      if(i>=0){arr.splice(i,1);cambios++}
+      delete snap[k];
+    }else{
+      const nuevo=f.data;
+      if(i>=0){ if(limpio(arr[i])!==limpio(nuevo)){arr[i]=nuevo;cambios++} }
+      else {arr.push(nuevo);cambios++}
+      snap[k]=limpio(nuevo);
+    }
+  });
+  grabarSnap(snap); lsSet(PULL,ultima);
+  if(cambios) save();
+  return cambios;
+}
+
+async function sincronizar(manual){
+  if(!conectado()||syncing2) return;
+  if(!sbSes.hogar){ try{await cargarPerfiles()}catch(e){} }
+  syncing2=true; syncEstado='sync'; pintarNube();
+  try{
+    const sub=await empujar();
+    const baj=await traer();
+    syncEstado='ok'; sbSes.ultima=new Date().toISOString(); lsSet(SB,JSON.stringify(sbSes));
+    if(baj) render(true); else pintarNube();
+    if(manual) toast(sub+baj? 'Sincronizado' : 'Todo al día');
+  }catch(e){
+    syncEstado=/fetch|network|load failed/i.test(e.message||'')?'offline':'error';
+    pintarNube();
+    if(manual) toast('No se pudo sincronizar');
+  }finally{ syncing2=false }
+}
+/* se sincroniza solo: al guardar (con un respiro), cada 25s y al volver a la app */
+function tocar(){
+  if(!conectado()||syncing2) return;
+  clearTimeout(syncTimer);
+  syncTimer=setTimeout(()=>sincronizar(false),1500);
+}
+function arrancarSync(){
+  if(!conectado()) return;
+  sincronizar(false);
+  clearInterval(window._sbLoop);
+  window._sbLoop=setInterval(()=>{if(!document.hidden)sincronizar(false)},25000);
+}
+function pintarNube(){
+  const el=document.getElementById('nubeEstado');
+  if(el) el.textContent=txtEstado();
+  const p=document.getElementById('nubePunto');
+  if(p) p.style.background=({ok:'var(--pos)',sync:'var(--warn)',offline:'var(--dim2)',error:'var(--neg)'})[syncEstado]||'var(--dim2)';
+}
+const txtEstado=()=>({
+  ok:'Sincronizado'+(sbSes&&sbSes.ultima?' · '+hora(sbSes.ultima):''),
+  sync:'Sincronizando…',
+  offline:'Sin conexión · los cambios se suben cuando vuelva',
+  error:'Error al sincronizar'
+})[syncEstado]||'Conectado';
+
+/* ---- primera conexión: subir lo que ya había en el teléfono ---- */
+async function migrarLocal(){
+  const total=COLS.reduce((a,k)=>a+(S[k]||[]).length,0);
+  if(!total) return 0;
+  /* los registros viejos guardan el id local del titular; pasa a ser el nombre.
+     El nombre de la otra persona se conserva aunque todavía no haya creado
+     su cuenta: cuando entre con ese mismo nombre, sus registros la esperan. */
+  const viejos={}; (S.usersLocal||[]).forEach(u=>viejos[u.id]=u.name);
+  const conocidos=new Set([...(S.usersLocal||[]).map(u=>u.name),...S.users.map(u=>u.name)]);
+  COLS.forEach(k=>S[k].forEach(o=>{
+    if(o.owner&&viejos[o.owner]) o.owner=viejos[o.owner];
+    if(!o.owner||!conocidos.has(o.owner)) o.owner=me.name;
+  }));
+  save();
+  return await empujar();
+}
+
 /* ---------------- scope ---------------- */
 function inScope(r){
   if(scope==='all') return true;
-  if(scope==='mine') return r.owner===me.id;
+  if(scope==='mine') return r.owner===miId();
   return r.scope==='familiar';
 }
+/* en la nube el titular se guarda por nombre; en modo local, por id */
+const miId=()=>enNube()?me.name:me.id;
 const F=k=>S[k].filter(inScope);
-const userName=id=>{const u=S.users.find(x=>x.id===id);return u?u.name:'—'};
+const userName=v=>{
+  if(!v) return '—';
+  const u=S.users.find(x=>x.id===v);
+  if(u) return u.name;
+  return S.users.some(x=>x.name===v)?v:v;
+};
 
 /* ---------------- cálculos ---------------- */
 function fdInteres(f){
@@ -544,12 +790,58 @@ function perRange(){
    AUTH · setup / login / PIN
    ============================================================ */
 function renderAuth(){
-  applyTheme();
+  applyTheme(); cargarNube();
   const A=$('#auth'); A.classList.remove('hide'); $('#app').classList.add('hide');
   const d=dev();
+  if(enNube()){
+    if(d.pin && conectado()) return authPin(A,d);
+    return authNube(A);
+  }
   if(!S.users.length) return authSetup(A);
   if(d.pin && d.uid && S.users.some(u=>u.id===d.uid)) return authPin(A,d);
   authLogin(A);
+}
+/* ---- pantalla para pegar las dos claves del proyecto ---- */
+function authConectar(A){
+  const c=cloudCfg||{};
+  A.innerHTML=`<div class="authbox">
+    <div class="wordmark">ORBIT</div>
+    <div class="wordsub up">Conectar con la nube</div>
+    <div class="authform">
+      <div class="fld"><label class="up">Project URL</label>
+        <input id="cu" placeholder="https://xxxx.supabase.co" autocapitalize="off" value="${esc(c.url||'')}"></div>
+      <div class="fld"><label class="up">Clave pública (anon)</label>
+        <input id="ck" placeholder="eyJhbGci..." autocapitalize="off" value="${esc(c.key||'')}"></div>
+      <div class="err" id="aerr"></div>
+      <button class="btn solid" data-act="doconectar">Conectar</button>
+      <button class="btn ghost" data-act="cancelconectar">Volver</button>
+    </div>
+    <div class="authnote">Los dos textos salen de Supabase, en Project Settings → API.
+    Se guardan solo en este teléfono.</div>
+  </div>`;
+}
+/* ---- login contra la base compartida ---- */
+function authNube(A,modo){
+  const alta=modo==='alta';
+  A.innerHTML=`<div class="authbox">
+    <div class="wordmark">ORBIT</div>
+    <div class="wordsub up">${alta?'Crear mi cuenta':'Finanzas de la familia'}</div>
+    <div class="authform">
+      ${alta?`<div class="fld"><label class="up">Tu nombre</label><input id="nn" placeholder="Samanta"></div>`:''}
+      <div class="fld"><label class="up">Email</label>
+        <input id="le" type="email" inputmode="email" autocapitalize="off" autocomplete="username"></div>
+      <div class="fld"><label class="up">Contraseña</label>
+        <input id="lp" type="password" autocomplete="${alta?'new-password':'current-password'}"></div>
+      <div class="err" id="aerr"></div>
+      <button class="btn solid" data-act="${alta?'doalta':'donubelogin'}">${alta?'Crear cuenta':'Ingresar'}</button>
+      <button class="btn ghost" data-act="${alta?'domodologin':'domodoalta'}">${alta?'Ya tengo cuenta':'Crear mi cuenta'}</button>
+    </div>
+    <div class="authnote">
+      <span id="nubeEstado">Base compartida</span><br><br>
+      <button class="btn sm ghost" data-act="desconectar" style="width:100%">Cambiar de base</button>
+    </div>
+  </div>`;
+  const lp=$('#lp'); if(lp) lp.onkeydown=e=>{if(e.key==='Enter')(alta?doAlta:doNubeLogin)()};
 }
 function authSetup(A){
   A.innerHTML=`<div class="authbox">
@@ -573,8 +865,9 @@ function authSetup(A){
       <button class="btn solid" data-act="dosetup">Crear cuentas</button>
       <div class="orsep"><span>o</span></div>
       <button class="btn" data-act="imp">Ya tengo un backup</button>
-      <div class="authnote" style="margin-top:0">Si en tu familia ya crearon las cuentas, pediles el archivo de
-      backup y restauralo acá: no hace falta crear nada de nuevo.</div>
+      <button class="btn" data-act="conectar">Conectar con la base compartida</button>
+      <div class="authnote" style="margin-top:0">Si en tu familia ya usan la base compartida, tocá el botón de arriba:
+      entrás con tu cuenta y ves todo al instante, sin crear nada.</div>
     </div>
   </div>`;
 }
@@ -589,7 +882,8 @@ function authLogin(A){
       <button class="btn solid" data-act="dologin">Ingresar</button>
     </div>
     <div class="authnote">${S.users.map(u=>esc(u.name)+' · '+esc(u.email)).join('<br>')}
-      <br><br><button class="btn sm ghost" data-act="imp" style="width:100%">Restaurar desde un backup</button></div>
+      <br><br><button class="btn sm ghost" data-act="imp" style="width:100%">Restaurar desde un backup</button>
+      <button class="btn sm ghost" data-act="conectar" style="width:100%">Conectar con la base compartida</button></div>
   </div>`;
   $('#lp').onkeydown=e=>{if(e.key==='Enter')doLogin()};
   $('#le').onkeydown=e=>{if(e.key==='Enter')$('#lp').focus()};
@@ -597,7 +891,7 @@ function authLogin(A){
 let pinBuf='';
 function authPin(A,d){
   pinBuf='';
-  const u=S.users.find(x=>x.id===d.uid);
+  const u=S.users.find(x=>x.id===d.uid)||{name:(sbSes&&sbSes.nombre)||''};
   A.innerHTML=`<div class="authbox">
     <div class="wordmark">ORBIT</div>
     <div class="wordsub up">Hola ${esc(u.name)}</div>
@@ -622,7 +916,10 @@ function pinPress(k){
     const p=pinBuf;
     hashPw(p,d.salt).then(h=>{
       if(h===d.pin){
-        me=S.users.find(u=>u.id===d.uid); lsSet(SESS,me.id); boot();
+        me=S.users.find(u=>u.id===d.uid)
+          ||(enNube()&&sbSes?{id:sbSes.user.id,name:sbSes.nombre||sbSes.user.email.split('@')[0],email:sbSes.user.email}:null);
+        if(!me){$('#aerr').textContent='Volvé a entrar con tu contraseña';return}
+        lsSet(SESS,me.id); boot();
       }else{
         pinBuf=''; dots.classList.add('bad');
         [...dots.children].forEach(c=>c.classList.remove('on'));
@@ -632,6 +929,84 @@ function pinPress(k){
     });
   }
 }
+/* ---------- acciones de la nube ---------- */
+async function doConectar(){
+  const url=$('#cu').value.trim().replace(/\/+$/,''), key=$('#ck').value.trim();
+  if(!/^https:\/\/.+\..+/.test(url)) return err('La dirección tiene que empezar con https:// y ser la del proyecto.');
+  /* sirve tanto la clave nueva (sb_publishable_...) como la anterior (anon, eyJ...) */
+  if(key.length<30) return err('La clave parece incompleta. Copiala entera.');
+  if(/^sb_secret|service_role/i.test(key)) return err('Esa es la clave secreta y no va acá. Usá la pública (publishable / anon).');
+  err('Probando la conexión…');
+  cloudCfg={url,key};
+  try{
+    /* golpe de prueba: verifica la clave y que las tablas estén creadas */
+    await sbFetch('/rest/v1/orbit_perfiles?select=user_id&limit=1',{anon:true});
+    lsSet(CLOUD,JSON.stringify(cloudCfg));
+    lsDel(SNAP); lsDel(PULL);
+    toast('Conectado'); renderAuth();
+  }catch(e){
+    cloudCfg=null;
+    err(/does not exist|PGRST205|relation/i.test(e.message)?'Llegué al proyecto, pero faltan las tablas: corré supabase.sql en el SQL Editor.'
+       :/401|apikey|JWT/i.test(e.message)?'La clave no es válida para ese proyecto.'
+       :/fetch|network|load failed/i.test(e.message)?'No se pudo llegar al proyecto. Revisá la dirección.'
+       :e.message);
+  }
+}
+async function doNubeLogin(){
+  const e=$('#le').value.trim().toLowerCase(), p=$('#lp').value;
+  if(!e||!p) return err('Completá mail y contraseña.');
+  err('Entrando…');
+  try{
+    /* los datos locales de antes se conservan para poder subirlos */
+    if(!S.usersLocal&&S.users.length&&!S.users[0].hogar) S.usersLocal=S.users.slice();
+    await nubeLogin(e,p);
+    const subidos=await migrarLocal();
+    lsSet(SESS,me.id); boot();
+    if(subidos) toast(subidos+' registros subidos');
+    if(!dev().pin) setTimeout(askPin,600);
+  }catch(err2){
+    err(/invalid/i.test(err2.message)?'Mail o contraseña incorrectos.'
+      :/fetch|network|load failed/i.test(err2.message)?'Sin conexión a internet.':err2.message);
+  }
+}
+async function doAlta(){
+  const n=$('#nn').value.trim(), e=$('#le').value.trim().toLowerCase(), p=$('#lp').value;
+  if(!n) return err('Poné tu nombre: así se identifica cada gasto.');
+  if(!e||p.length<6) return err('Hace falta un mail y una contraseña de 6 caracteres o más.');
+  err('Creando la cuenta…');
+  try{
+    await sbFetch('/auth/v1/signup',{method:'POST',anon:true,
+      body:JSON.stringify({email:e,password:p,data:{nombre:n}})});
+    err('');
+    await doNubeLoginCon(e,p,n);
+  }catch(err2){
+    err(/already|registered/i.test(err2.message)?'Ese mail ya tiene cuenta. Entrá con tu contraseña.'
+      :/fetch|network/i.test(err2.message)?'Sin conexión a internet.':err2.message);
+  }
+}
+async function doNubeLoginCon(e,p,nombre){
+  try{
+    if(!S.usersLocal&&S.users.length&&!S.users[0].hogar) S.usersLocal=S.users.slice();
+    await nubeLogin(e,p,nombre);
+    const subidos=await migrarLocal();
+    lsSet(SESS,me.id); boot();
+    if(subidos) toast(subidos+' registros subidos');
+    if(!dev().pin) setTimeout(askPin,600);
+  }catch(x){
+    err(/lista de autorizados/i.test(x.message)
+      ? x.message
+      : 'La cuenta se creó pero no pude entrar: '+x.message+'. Probá con "Ya tengo cuenta".');
+  }
+}
+function desconectar(){
+  confirmar('Vas a desconectar este teléfono de la base compartida. Los datos siguen en la nube y en este teléfono queda una copia.',()=>{
+    lsDel(CLOUD); lsDel(SB); lsDel(SNAP); lsDel(PULL); lsDel(SESS); lsDel(DEV);
+    cloudCfg=null; sbSes=null; me=null;
+    clearInterval(window._sbLoop);
+    renderAuth(); toast('Desconectado');
+  });
+}
+
 async function doSetup(){
   const g=id=>$('#'+id).value.trim();
   const u=[[g('n1'),g('e1'),$('#p1').value],[g('n2'),g('e2'),$('#p2').value]];
@@ -659,7 +1034,9 @@ async function doLogin(){
 const err=m=>{const e=$('#aerr'); if(e)e.textContent=m};
 function logout(){
   confirmar('¿Cerrar sesión en este dispositivo? Se borra también el PIN guardado.',()=>{
-    me=null; lsDel(SESS); lsDel(DEV); renderAuth();
+    me=null; lsDel(SESS); lsDel(DEV);
+    if(enNube()){lsDel(SB); sbSes=null; clearInterval(window._sbLoop)}
+    renderAuth();
   });
 }
 function askPin(){
@@ -688,6 +1065,7 @@ function boot(){
   $('#nav').innerHTML=VIEWS.map(([k,l,i])=>`<button data-view="${k}">${svg(IC[i],1.5)}<span>${l}</span></button>`).join('');
   render();
   syncMercado(false);   /* busca dólar y precios del día, en silencio */
+  arrancarSync();       /* y trae lo que cargó el otro */
 }
 function render(keepScroll){
   applyTheme();
@@ -971,6 +1349,29 @@ function vSet(){
   const standalone=matchMedia('(display-mode: standalone)').matches||navigator.standalone;
   return `
   <div class="sect">
+    <div class="sechead"><div class="sectitle">Base compartida</div></div>
+    <div class="panel">
+      ${conectado()?`
+        <div class="crow" style="align-items:center">
+          <span style="display:flex;align-items:center;gap:9px">
+            <i id="nubePunto" class="dot" style="background:var(--pos);border-radius:50%"></i>
+            <span id="nubeEstado">${txtEstado()}</span></span>
+        </div>
+        <div class="help">Entraste como <b>${esc(me.name)}</b> (${esc(me.email||'')}).
+        En la casa hay ${S.users.length} cuenta${S.users.length===1?'':'s'}: ${S.users.map(u=>esc(u.name)).join(' y ')}.
+        Todo lo que cargues aparece en el otro teléfono en menos de medio minuto.</div>
+        <div class="cbtns" style="margin-top:14px">
+          <button class="btn sm" data-act="sincro">Sincronizar ahora</button>
+          <button class="btn sm" data-act="minombre">Mi nombre</button>
+        </div>
+        <button class="btn sm danger" data-act="desconectar" style="margin-top:8px">Desconectar</button>`
+      :`<div class="help" style="margin:0 0 14px">Este teléfono guarda los datos solo para vos.
+        Conectalo a la base compartida para que vos y tu familia vean lo mismo.</div>
+        <button class="btn sm" data-act="conectar">Conectar</button>`}
+    </div>
+  </div>
+
+  <div class="sect">
     <div class="sechead"><div class="sectitle">Este dispositivo</div></div>
     <div class="panel">
       <h3>Tema</h3>
@@ -1203,7 +1604,8 @@ function toast(m){
   const d=document.createElement('div'); d.className='toast'; d.textContent=m;
   document.body.appendChild(d); setTimeout(()=>d.remove(),1900);
 }
-const ownerF=()=>({k:'owner',label:'Titular',type:'select',opts:S.users.map(u=>({v:u.id,l:u.name})),def:me.id,half:true});
+const ownerF=()=>({k:'owner',label:'Titular',type:'select',
+  opts:S.users.map(u=>({v:enNube()?u.name:u.id,l:u.name})),def:miId(),half:true});
 const scopeF=()=>({k:'scope',label:'Ámbito',type:'seg',opts:[{v:'personal',l:'Personal'},{v:'familiar',l:'Familiar'}],def:'personal'});
 const curF=()=>({k:'cur',label:'Moneda',type:'seg',opts:[{v:'ARS',l:'Pesos'},{v:'USD',l:'Dólares'}],def:'ARS'});
 const del=(k,id,msg)=>()=>{S[k]=S[k].filter(x=>x.id!==id);save();render();toast('Eliminado')};
@@ -1398,15 +1800,26 @@ function formCat(t){
       if(!arr.includes(v.c))arr.push(v.c); save();render()}});
 }
 function formPw(){
+  const nube=enNube();
   openForm({title:'Cambiar contraseña',
-    fields:[{k:'a',label:'Contraseña actual',type:'password'},
-            {k:'b',label:'Nueva contraseña',type:'password'},
-            {k:'c',label:'Repetir nueva',type:'password'}],
+    fields:nube
+      ?[{k:'b',label:'Nueva contraseña',type:'password',help:'Mínimo 6 caracteres.'},
+        {k:'c',label:'Repetir nueva',type:'password'}]
+      :[{k:'a',label:'Contraseña actual',type:'password'},
+        {k:'b',label:'Nueva contraseña',type:'password'},
+        {k:'c',label:'Repetir nueva',type:'password'}],
     onSave:async v=>{
-      if(await hashPw(v.a,me.salt)!==me.hash) return ferr('La contraseña actual no coincide.');
-      if(!v.b||v.b.length<4) return ferr('La nueva debe tener 4+ caracteres.');
       if(v.b!==v.c) return ferr('Las contraseñas nuevas no coinciden.');
-      me.salt=uid(); me.hash=await hashPw(v.b,me.salt); save(); toast('Contraseña actualizada');
+      if(nube){
+        if(!v.b||v.b.length<6) return ferr('La nueva debe tener 6 caracteres o más.');
+        try{ await sbFetch('/auth/v1/user',{method:'PUT',body:JSON.stringify({password:v.b})}) }
+        catch(e){ return ferr(e.message) }
+        toast('Contraseña actualizada');
+      }else{
+        if(await hashPw(v.a,me.salt)!==me.hash) return ferr('La contraseña actual no coincide.');
+        if(!v.b||v.b.length<4) return ferr('La nueva debe tener 4+ caracteres.');
+        me.salt=uid(); me.hash=await hashPw(v.b,me.salt); save(); toast('Contraseña actualizada');
+      }
     }});
 }
 function howInstall(){
@@ -1487,6 +1900,20 @@ document.addEventListener('click',e=>{
   const a=b.dataset.act, id=b.dataset.id;
   const A={
     dosetup:doSetup, dologin:doLogin, usepw:()=>{lsDel(DEV);renderAuth()},
+    conectar:()=>authConectar($('#auth')),
+    cancelconectar:()=>{cloudCfg=null;renderAuth()},
+    doconectar:doConectar, donubelogin:doNubeLogin, doalta:doAlta,
+    domodoalta:()=>authNube($('#auth'),'alta'), domodologin:()=>authNube($('#auth')),
+    desconectar, sincro:()=>sincronizar(true),
+    minombre:()=>openForm({title:'Mi nombre',values:{n:me.name},
+      fields:[{k:'n',label:'Cómo aparecen mis gastos',req:true,
+        help:'Es el nombre con el que se firma cada movimiento que cargás y el que ve la otra persona.'}],
+      onSave:async v=>{
+        const n=v.n.trim(); if(!n) return ferr('Poné un nombre.');
+        if(S.users.some(u=>u.name===n&&u.id!==me.id)) return ferr('Ese nombre ya lo usa la otra persona.');
+        try{ await cambiarNombre(n) }catch(e){ return ferr(e.message) }
+        render(); toast('Listo');
+      }}),
     logout, go:()=>{view=b.dataset.v;render()},
     curtog:()=>{cur=cur==='ARS'?'USD':'ARS';render()},
     per:()=>{dashPer=b.dataset.p;render()},
@@ -1519,16 +1946,26 @@ document.addEventListener('click',e=>{
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeForm()});
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e});
 
-/* bloqueo por inactividad cuando hay PIN */
+/* bloqueo por inactividad cuando hay PIN · y al volver, traer lo del otro */
 document.addEventListener('visibilitychange',()=>{
   if(document.hidden){hiddenAt=Date.now();return}
-  if(me&&dev().pin&&hiddenAt&&Date.now()-hiddenAt>5*60*1000){me=null;renderAuth()}
+  if(me&&dev().pin&&hiddenAt&&Date.now()-hiddenAt>5*60*1000){me=null;renderAuth();return}
+  if(me) sincronizar(false);
 });
+window.addEventListener('online',()=>{if(me)sincronizar(false)});
 
 /* ---------------- arranque ---------------- */
-load(); applyTheme();
+load(); applyTheme(); cargarNube();
 const d0=dev(), sid=lsGet(SESS);
-if(d0.pin&&d0.uid&&S.users.some(u=>u.id===d0.uid)){renderAuth()}
+if(enNube()){
+  if(d0.pin&&conectado()) renderAuth();
+  else if(conectado()&&sid){
+    const yo=S.users.find(u=>u.id===sid);
+    me=yo?{id:yo.id,name:yo.name,email:(sbSes.user||{}).email}:null;
+    me?boot():renderAuth();
+  }else renderAuth();
+}
+else if(d0.pin&&d0.uid&&S.users.some(u=>u.id===d0.uid)){renderAuth()}
 else{
   const su=sid?S.users.find(u=>u.id===sid):null;
   if(su){me=su;boot()}else renderAuth();
