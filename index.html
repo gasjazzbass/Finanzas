@@ -409,8 +409,12 @@ const API={
   dolar:'https://dolarapi.com/v1/dolares',
   ars:['https://data912.com/live/arg_cedears','https://data912.com/live/arg_stocks',
        'https://data912.com/live/arg_bonds','https://data912.com/live/arg_notes'],
-  usd:['https://data912.com/live/usa_stocks']
+  usd:['https://data912.com/live/usa_stocks'],
+  cripto:'https://api.coingecko.com/api/v3/simple/price?vs_currencies=usd,ars&include_24hr_change=true&ids='
 };
+/* criptomonedas con precio automático */
+const CRIPTO={BTC:'bitcoin',ETH:'ethereum',USDT:'tether',USDC:'usd-coin',
+              SOL:'solana',BNB:'binancecoin',XRP:'ripple',ADA:'cardano',DOGE:'dogecoin',LTC:'litecoin'};
 const CASAS=[['oficial','Oficial'],['blue','Blue'],['bolsa','MEP (Bolsa)'],['contadoconliqui','CCL'],
              ['mayorista','Mayorista'],['cripto','Cripto'],['tarjeta','Tarjeta'],['manual','Manual']];
 const casaLbl=c=>{const f=CASAS.find(x=>x[0]===c);return f?f[1]:c};
@@ -421,7 +425,8 @@ const IC={
   fijos:'<rect x="3" y="5" width="18" height="16" rx="1"/><path d="M3 10h18M8 3v4M16 3v4"/>',
   ahorro:'<path d="M3 9h18v11H3z"/><path d="M3 9l3-5h12l3 5"/><path d="M10 13h4"/>',
   inv:'<path d="M3 17l6-6 4 4 8-8"/><path d="M21 7v5h-5"/>',
-  set:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/>',
+  /* engranaje de verdad (con dientes), no un sol */
+  set:'<path d="M12.3 2.5h-.6a1.9 1.9 0 0 0-1.9 1.9v.2a1.6 1.6 0 0 1-.8 1.4l-.5.3a1.6 1.6 0 0 1-1.6 0l-.2-.1a1.9 1.9 0 0 0-2.6.7l-.3.5a1.9 1.9 0 0 0 .7 2.6l.2.1a1.6 1.6 0 0 1 .8 1.4v.6a1.6 1.6 0 0 1-.8 1.4l-.2.1a1.9 1.9 0 0 0-.7 2.6l.3.5a1.9 1.9 0 0 0 2.6.7l.2-.1a1.6 1.6 0 0 1 1.6 0l.5.3a1.6 1.6 0 0 1 .8 1.4v.2a1.9 1.9 0 0 0 1.9 1.9h.6a1.9 1.9 0 0 0 1.9-1.9v-.2a1.6 1.6 0 0 1 .8-1.4l.5-.3a1.6 1.6 0 0 1 1.6 0l.2.1a1.9 1.9 0 0 0 2.6-.7l.3-.5a1.9 1.9 0 0 0-.7-2.6l-.2-.1a1.6 1.6 0 0 1-.8-1.4v-.6a1.6 1.6 0 0 1 .8-1.4l.2-.1a1.9 1.9 0 0 0 .7-2.6l-.3-.5a1.9 1.9 0 0 0-2.6-.7l-.2.1a1.6 1.6 0 0 1-1.6 0l-.5-.3a1.6 1.6 0 0 1-.8-1.4v-.2a1.9 1.9 0 0 0-1.9-1.9z"/><circle cx="12" cy="12" r="2.8"/>',
   sun:'<circle cx="12" cy="12" r="4.5"/><path d="M12 1.5v2.5M12 20v2.5M1.5 12h2.5M20 12h2.5M4.5 4.5l1.8 1.8M17.7 17.7l1.8 1.8M19.5 4.5l-1.8 1.8M6.3 17.7l-1.8 1.8"/>',
   moon:'<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/>',
   auto:'<rect x="2.5" y="4" width="19" height="13" rx="1"/><path d="M8 21h8M12 17v4"/>'
@@ -522,7 +527,7 @@ function shiftYM(ym,n){const [y,m]=ym.split('-').map(Number);const d=new Date(y,
 function days(a,b){return Math.round((new Date(b)-new Date(a))/86400000)}
 
 /* ---------------- mercado (dólar y precios) ---------------- */
-let syncing=false;
+let syncing=false, syncPend=null;
 const pxKey=(tk,cur)=>tk+'|'+cur;
 const getPx=h=>(S.market.px||{})[pxKey(h.tk,h.cur)];
 function hora(iso){
@@ -548,7 +553,9 @@ function aplicarDolar(){
   if(d&&d.venta>0){S.settings.usdRate=d.venta;S.settings.rateDate=todayISO()}
 }
 async function syncMercado(manual){
-  if(syncing) return;
+  /* si ya hay una consulta en curso, esta queda encolada en vez de perderse:
+     pasaba al agregar un activo justo mientras arrancaba la app */
+  if(syncing){ syncPend=syncPend||!!manual; return }
   syncing=true; if(manual)pintarSync(true);
   const M=S.market;
   try{
@@ -557,7 +564,9 @@ async function syncMercado(manual){
     aplicarDolar();
 
     const auto=S.holds.filter(h=>h.auto!==false&&h.tk);
-    const enARS=auto.filter(h=>h.cur==='ARS'), enUSD=auto.filter(h=>h.cur==='USD');
+    const cripto=auto.filter(esCripto);
+    const enARS=auto.filter(h=>!esCripto(h)&&h.cur==='ARS');
+    const enUSD=auto.filter(h=>!esCripto(h)&&h.cur==='USD');
     M.px=M.px||{};
     const cargar=async(urls,moneda,tenencias)=>{
       if(!tenencias.length) return;
@@ -572,6 +581,7 @@ async function syncMercado(manual){
     };
     await cargar(API.ars,'ARS',enARS);
     await cargar(API.usd,'USD',enUSD);
+    await cargarCripto(M,cripto);
 
     S.holds.forEach(h=>{
       const p=getPx(h);
@@ -587,11 +597,29 @@ async function syncMercado(manual){
             : (e.message||'error desconocido');
     save();
     if(manual){render(true);toast('No se pudo actualizar')} else pintarSync(false);
-  }finally{syncing=false}
+  }finally{
+    syncing=false;
+    if(syncPend!==null){const m=syncPend;syncPend=null;syncMercado(m)}
+  }
 }
 function pintarSync(on){
   document.querySelectorAll('[data-act=sync]').forEach(b=>{
     b.disabled=on; b.textContent=on?'Actualizando…':'Actualizar ahora';
+  });
+}
+/* ---- criptomonedas ---- */
+const esCripto=h=>h.kind==='Cripto'&&!!CRIPTO[(h.tk||'').toUpperCase()];
+async function cargarCripto(M,tenencias){
+  if(!tenencias.length) return;
+  const ids=[...new Set(tenencias.map(h=>CRIPTO[h.tk.toUpperCase()]))];
+  const j=await getJSON(API.cripto+ids.join(','));
+  const ahora=new Date().toISOString();
+  tenencias.forEach(h=>{
+    const d=j[CRIPTO[h.tk.toUpperCase()]]; if(!d) return;
+    /* CoinGecko devuelve el precio en las dos monedas: se usa la de la tenencia */
+    const k=h.cur==='USD'?'usd':'ars';
+    if(Number(d[k])>0)
+      M.px[pxKey(h.tk,h.cur)]={v:Number(d[k]),pct:Number(d[k+'_24h_change'])||0,cur:h.cur,h24:true,ts:ahora};
   });
 }
 /* tickers sin precio automático (no cotizan o el símbolo no existe) */
@@ -1404,7 +1432,7 @@ function vInv(){
   </div>
 
   <div class="sect">
-    <div class="sechead"><div class="sectitle">Acciones · CEDEARs · fondos</div><div class="hspace"></div>
+    <div class="sechead"><div class="sectitle">Acciones · CEDEARs · cripto</div><div class="hspace"></div>
       <button class="btn sm" data-act="sync">Actualizar ahora</button>
       <button class="btn sm" data-act="newhold">+ Tenencia</button></div>
     ${H.length?`<div class="rows">
@@ -1415,7 +1443,7 @@ function vInv(){
         return `<div class="row" data-act="edithold" data-id="${h.id}">
           <div class="rmain">
             <div class="rtitle">${esc(h.tk)} ${h.scope==='familiar'?'<span class="tag fam">Fam</span>':''}
-              ${vivo?`<span class="tag ${p.pct>=0?'ok':''}" ${p.pct<0?'style="border-color:color-mix(in srgb,var(--neg) 40%,transparent);color:var(--neg)"':''}>${pct(p.pct)} hoy</span>`
+              ${vivo?`<span class="tag ${p.pct>=0?'ok':''}" ${p.pct<0?'style="border-color:color-mix(in srgb,var(--neg) 40%,transparent);color:var(--neg)"':''}>${pct(p.pct)} ${p.h24?'24h':'hoy'}</span>`
                     :'<span class="tag">Manual</span>'}</div>
             <div class="rsub">${esc(h.kind)} · ${h.qty} × ${fmtRaw(h.now,h.cur)}${h.name?' · '+esc(h.name):''}</div>
           </div>
@@ -1426,8 +1454,9 @@ function vInv(){
           ${vivo?'':`<button class="btn sm rbtn" data-act="price" data-id="${h.id}">Actualizar precio</button>`}
         </div>`}).join('')}</div>
       <div class="help" style="margin-top:12px">
-        Precios de BYMA · última actualización ${hora(S.market.updated)}.
-        Se actualizan solos cada vez que abrís la app; entre las 11 y las 17 son los de la rueda, fuera de ese horario es el último cierre.
+        Última actualización ${hora(S.market.updated)}. Se actualizan solos cada vez que abrís la app.
+        Acciones y CEDEARs toman el precio de BYMA: entre las 11 y las 17 el de la rueda, fuera de ese horario el último cierre.
+        Las criptomonedas cotizan las 24 horas, así que su variación es la de las últimas 24 h.
         ${sinAuto().length?`<br><span class="warn">Sin cotización automática: ${sinAuto().map(esc).join(', ')}. Revisá el símbolo o dejá el precio en manual.</span>`:''}
       </div>`
       :'<div class="empty">Sin tenencias cargadas</div>'}
@@ -1867,19 +1896,22 @@ function formHold(id){
     values:h?{...h,auto:h.auto===false?'no':'si'}:{kind:'CEDEAR',auto:'si'},
     del:h?del('holds',id):null, delMsg:'¿Borrar esta tenencia?',
     fields:[
-      {k:'tk',label:'Ticker / símbolo',req:true,ph:'Ej: AAPL, GGAL',half:true},
-      {k:'kind',label:'Tipo',type:'select',opts:['CEDEAR','Acción','Fondo','ON / Bono','Otro'].map(x=>({v:x,l:x})),def:'CEDEAR',half:true},
-      {k:'name',label:'Nombre (opcional)',ph:'Apple Inc.'},
-      {k:'qty',label:'Cantidad',type:'number',step:'0.0001',req:true,half:true},
+      {k:'tk',label:'Ticker / símbolo',req:true,ph:'Ej: AAPL, GGAL, BTC',half:true},
+      {k:'kind',label:'Tipo',type:'select',opts:['CEDEAR','Acción','Cripto','Fondo','ON / Bono','Otro'].map(x=>({v:x,l:x})),def:'CEDEAR',half:true},
+      {k:'name',label:'Nombre (opcional)',ph:'Apple Inc.',
+       help:'Para cripto usá el símbolo: BTC (Bitcoin) o ETH (Ethereum).'},
+      {k:'qty',label:'Cantidad',type:'number',step:'0.00000001',req:true,half:true},
       {k:'buy',label:'Precio de compra',type:'number',step:'0.01',req:true,half:true},
       {k:'cur',label:'Moneda',type:'seg',opts:[{v:'ARS',l:'Pesos'},{v:'USD',l:'Dólares'}],def:'ARS'},
       {k:'auto',label:'Precio actual',type:'seg',opts:[{v:'si',l:'Automático'},{v:'no',l:'Lo cargo yo'}],def:'si',
-       help:'Automático busca la cotización del día en BYMA usando el ticker. Para fondos comunes y activos que no cotizan, elegí "lo cargo yo".'},
+       help:'Automático busca la cotización del día: BYMA para acciones y CEDEARs, y el mercado cripto para BTC y ETH. Para fondos comunes y activos que no cotizan, elegí "lo cargo yo".'},
       {k:'now',label:'Precio actual (si es manual)',type:'number',step:'0.01',half:true},
       ownerF(),scopeF()
     ],
     onSave(v){
       const tk=v.tk.toUpperCase().trim(), auto=v.auto!=='no';
+      if(auto&&v.kind==='Cripto'&&!CRIPTO[tk])
+        return ferr('No tengo precio para "'+tk+'". Las que puedo seguir son: '+Object.keys(CRIPTO).join(', ')+'. Si no está, elegí "lo cargo yo".');
       const px=(S.market.px||{})[pxKey(tk,v.cur)];
       let now=Number(v.now)||0;
       if(auto&&px) now=px.v;
