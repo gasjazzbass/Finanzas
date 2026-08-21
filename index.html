@@ -109,9 +109,9 @@ svg{display:block}
 .pindots i.on{background:var(--solid);border-color:var(--solid)}
 .pindots.bad i{border-color:var(--neg);background:transparent;animation:shake .3s}
 @keyframes shake{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
-.keys{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:290px;margin:0 auto}
+.keys{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:268px;margin:0 auto}
 .keys button{
-  height:64px;border:1px solid var(--line);font-size:22px;font-weight:200;border-radius:50%;
+  aspect-ratio:1;border:1px solid var(--line);font-size:23px;font-weight:200;border-radius:6px;
   display:flex;align-items:center;justify-content:center;
   transition:transform .2s var(--ease),background .16s,color .16s
 }
@@ -313,6 +313,24 @@ main{flex:1;width:100%;max-width:1320px;margin:0 auto;
 .alert .btn{width:auto;margin-left:auto;flex:none;border-color:color-mix(in srgb,var(--warn) 35%,transparent)}
 .pill{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);
   border:1px solid var(--line);padding:6px 10px;display:inline-flex;align-items:center;gap:6px}
+/* buscador de movimientos */
+.busca{position:relative;display:flex;align-items:center;gap:10px;margin-bottom:14px;
+  border:1px solid var(--line);border-radius:var(--r-sm);background:var(--panel);padding:0 12px}
+.busca svg{width:16px;height:16px;color:var(--dim);flex:none}
+.busca input{
+  flex:1;background:transparent;border:0;outline:none;padding:13px 0;
+  font-size:16px;font-weight:300;color:var(--txt);min-width:0
+}
+.busca input::placeholder{color:var(--dim2)}
+.busca .limpiar{width:26px;height:26px;flex:none;border-radius:50%;background:var(--track);
+  color:var(--txt);font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center;
+  transition:transform .2s var(--ease)}
+.busca .limpiar:active{transform:scale(.85)}
+.busca:focus-within{border-color:var(--solid)}
+.hallazgo{font-size:11px;color:var(--dim);margin-bottom:12px;line-height:1.6}
+.hallazgo b{color:var(--txt);font-weight:400}
+mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;border-radius:3px;padding:0 2px}
+
 .mnav{display:flex;align-items:center;gap:10px}
 .mnav .mlbl{font-size:11px;letter-spacing:.14em;text-transform:uppercase;min-width:120px;text-align:center}
 .toast{position:fixed;left:50%;transform:translateX(-50%);
@@ -427,6 +445,7 @@ const IC={
   inv:'<path d="M3 17l6-6 4 4 8-8"/><path d="M21 7v5h-5"/>',
   /* engranaje de verdad (con dientes), no un sol */
   set:'<path d="M12.3 2.5h-.6a1.9 1.9 0 0 0-1.9 1.9v.2a1.6 1.6 0 0 1-.8 1.4l-.5.3a1.6 1.6 0 0 1-1.6 0l-.2-.1a1.9 1.9 0 0 0-2.6.7l-.3.5a1.9 1.9 0 0 0 .7 2.6l.2.1a1.6 1.6 0 0 1 .8 1.4v.6a1.6 1.6 0 0 1-.8 1.4l-.2.1a1.9 1.9 0 0 0-.7 2.6l.3.5a1.9 1.9 0 0 0 2.6.7l.2-.1a1.6 1.6 0 0 1 1.6 0l.5.3a1.6 1.6 0 0 1 .8 1.4v.2a1.9 1.9 0 0 0 1.9 1.9h.6a1.9 1.9 0 0 0 1.9-1.9v-.2a1.6 1.6 0 0 1 .8-1.4l.5-.3a1.6 1.6 0 0 1 1.6 0l.2.1a1.9 1.9 0 0 0 2.6-.7l.3-.5a1.9 1.9 0 0 0-.7-2.6l-.2-.1a1.6 1.6 0 0 1-.8-1.4v-.6a1.6 1.6 0 0 1 .8-1.4l.2-.1a1.9 1.9 0 0 0 .7-2.6l-.3-.5a1.9 1.9 0 0 0-2.6-.7l-.2.1a1.6 1.6 0 0 1-1.6 0l-.5-.3a1.6 1.6 0 0 1-.8-1.4v-.2a1.9 1.9 0 0 0-1.9-1.9z"/><circle cx="12" cy="12" r="2.8"/>',
+  lupa:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.4 15.4 21 21"/>',
   sun:'<circle cx="12" cy="12" r="4.5"/><path d="M12 1.5v2.5M12 20v2.5M1.5 12h2.5M20 12h2.5M4.5 4.5l1.8 1.8M17.7 17.7l1.8 1.8M19.5 4.5l-1.8 1.8M6.3 17.7l-1.8 1.8"/>',
   moon:'<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/>',
   auto:'<rect x="2.5" y="4" width="19" height="13" rx="1"/><path d="M8 21h8M12 17v4"/>'
@@ -434,7 +453,7 @@ const IC={
 const svg=(p,w=1.4)=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
 
 let S=null, me=null, view='dash', cur='ARS', scope='all';
-let mvYM=new Date().toISOString().slice(0,7), dashPer='m';
+let mvYM=new Date().toISOString().slice(0,7), dashPer='m', q='';
 let deferredPrompt=null, hiddenAt=0;
 
 /* ---------------- persistencia ---------------- */
@@ -1191,6 +1210,9 @@ function boot(){
 function render(keepScroll){
   applyTheme();
   const y=window.scrollY;
+  /* si estabas escribiendo en el buscador, no te pierdo el cursor */
+  const act=document.activeElement;
+  const foco=(act&&act.id==='q')?act.selectionStart:null;
   $('#nav').querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.view===view));
   $('#setBtn').classList.toggle('on',view==='set');
   $('#chips').querySelectorAll('.chip').forEach(b=>b.classList.toggle('on',b.dataset.scope===scope));
@@ -1198,6 +1220,7 @@ function render(keepScroll){
   $('#main').innerHTML=({dash:vDash,mov:vMov,fijos:vFijos,ahorro:vAhorro,inv:vInv,set:vSet})[view]();
   $('#fab').classList.toggle('hide',!(view==='dash'||view==='mov'));
   window.scrollTo({top:keepScroll?y:0});
+  if(foco!==null){const n=$('#q');if(n){n.focus();try{n.setSelectionRange(foco,foco)}catch(e){}}}
 }
 
 /* ============================================================
@@ -1276,12 +1299,44 @@ function vDash(){
 /* ============================================================
    MOVIMIENTOS
    ============================================================ */
+/* saca acentos y mayúsculas para que "peluqueria" encuentre "Peluquería".
+   El rango va armado con escapes ASCII para que ningún editor lo corrompa. */
+const SIN_TILDE=new RegExp('[\\u0300-\\u036f]','g');
+const norm=s=>String(s==null?'':s).toLowerCase().normalize('NFD').replace(SIN_TILDE,'');
+/* todo lo que se puede escribir para encontrar un movimiento */
+function textoDe(t){
+  const [y,m]=t.date.split('-');
+  return norm([t.note,t.cat,userName(t.owner),t.type,t.cur,
+    t.amount, fmtRaw(t.amount,t.cur), MESES[+m-1], y, fecha(t.date),
+    t.scope==='familiar'?'familiar':'personal'].join(' '));
+}
+function buscarTx(){
+  const term=norm(q).split(/\s+/).filter(Boolean);
+  return F('tx')
+    .filter(t=>{const txt=textoDe(t);return term.every(p=>txt.includes(p))})
+    .sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
+}
+function resaltar(txt){
+  const term=norm(q).split(/\s+/).filter(Boolean);
+  if(!term.length) return esc(txt);
+  let out=esc(txt);
+  const plano=norm(txt);
+  /* marco por posición para no romper los acentos del texto original */
+  const marcas=[];
+  term.forEach(p=>{let i=plano.indexOf(p);while(i>=0){marcas.push([i,i+p.length]);i=plano.indexOf(p,i+p.length)}});
+  if(!marcas.length) return out;
+  marcas.sort((a,b)=>a[0]-b[0]);
+  const fus=[]; marcas.forEach(m=>{const u=fus[fus.length-1];
+    if(u&&m[0]<=u[1]){u[1]=Math.max(u[1],m[1])}else fus.push([...m])});
+  let r='',prev=0;
+  fus.forEach(([a,b])=>{r+=esc(txt.slice(prev,a))+'<mark>'+esc(txt.slice(a,b))+'</mark>';prev=b});
+  return r+esc(txt.slice(prev));
+}
 function vMov(){
-  const L=F('tx').filter(t=>t.date.slice(0,7)===mvYM).sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
-  const ing=sumTx(L,'ingreso'), gas=sumTx(L,'gasto');
+  const buscando=!!q.trim();
   return `
   <div class="sect">
-    <div class="sechead">
+    <div class="sechead" id="mesnav" ${buscando?'style="display:none"':''}>
       <div class="mnav">
         <button class="iconbtn" data-act="mv" data-d="-1">‹</button>
         <div class="mlbl">${ymLbl(mvYM)}</div>
@@ -1289,26 +1344,73 @@ function vMov(){
       </div>
       <div class="hspace"></div>
     </div>
+    <label class="busca">
+      ${svg(IC.lupa,1.6)}
+      <input id="q" type="search" enterkeyhint="search" autocomplete="off"
+        placeholder="Buscar en todos los movimientos" value="${esc(q)}">
+      ${buscando?'<button class="limpiar" data-act="limpiarq" aria-label="Limpiar">×</button>':''}
+    </label>
+    <div id="resultados">${movResultados()}</div>
+  </div>`;
+}
+function movResultados(){
+  const buscando=!!q.trim();
+  const todos=buscando?buscarTx():F('tx').filter(t=>t.date.slice(0,7)===mvYM)
+    .sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
+  const ing=sumTx(todos,'ingreso'), gas=sumTx(todos,'gasto');
+  const TOPE=300, L=todos.slice(0,TOPE);
+  let cabecera='';
+  if(buscando){
+    const desde=todos.length?todos[todos.length-1].date:null, hasta=todos.length?todos[0].date:null;
+    cabecera=todos.length
+      ? `<div class="hallazgo"><b>${todos.length}</b> movimiento${todos.length===1?'':'s'}
+         ${desde===hasta?'del '+fecha(hasta):'entre '+fecha(desde)+' y '+fecha(hasta)}
+         ${todos.length>TOPE?'<br>Muestro los '+TOPE+' más recientes.':''}</div>`
+      : `<div class="hallazgo">Ningún movimiento coincide con <b>${esc(q)}</b>.
+         Probá con parte del detalle, una categoría, un mes o un importe.</div>`;
+  }
+  return cabecera+`
     <div class="grid g3" style="margin-bottom:14px">
       <div class="cell"><div class="klbl">Ingresos</div><div class="kval num pos">${fmt(ing)}</div></div>
       <div class="cell"><div class="klbl">Gastos</div><div class="kval num neg">${fmt(gas)}</div></div>
-      <div class="cell"><div class="klbl">Balance</div><div class="kval num ${ing-gas>=0?'pos':'neg'}">${fmt(ing-gas)}</div></div>
+      <div class="cell"><div class="klbl">${buscando?'Neto':'Balance'}</div><div class="kval num ${ing-gas>=0?'pos':'neg'}">${fmt(ing-gas)}</div></div>
     </div>
-    ${txRows(L)}
-  </div>`;
+    ${txRows(L)}`;
+}
+/* Redibuja solo la lista y ajusta lo de alrededor a mano.
+   Nunca se rearma la pantalla entera: si el input se recreara,
+   el teclado del celular se cerraría en la primera letra. */
+function pintarResultados(){
+  const c=document.getElementById('resultados');
+  if(c) c.innerHTML=movResultados();
+  const buscando=!!q.trim();
+  const caja=document.querySelector('.busca');
+  if(caja){
+    const lim=caja.querySelector('.limpiar');
+    if(buscando&&!lim){
+      const b=document.createElement('button');
+      b.className='limpiar'; b.dataset.act='limpiarq';
+      b.setAttribute('aria-label','Limpiar'); b.textContent='×';
+      caja.appendChild(b);
+    }else if(!buscando&&lim) lim.remove();
+  }
+  const mes=document.getElementById('mesnav');
+  if(mes) mes.style.display=buscando?'none':'';
 }
 function txRows(L){
   if(!L.length) return '<div class="empty">Sin movimientos</div>';
+  const buscando=!!q.trim();
+  const marca=s=>buscando?resaltar(s):esc(s);
   return `<div class="rows">
     <div class="rhead"><div>Detalle</div><div style="text-align:right">Monto</div><div>Fecha · quién</div></div>
     ${L.map(t=>`<div class="row" data-act="edittx" data-id="${t.id}">
       <div class="rmain">
-        <div class="rtitle">${esc(t.note)||esc(t.cat)} ${t.scope==='familiar'?'<span class="tag fam">Fam</span>':''}</div>
-        <div class="rsub">${esc(t.cat)}</div>
+        <div class="rtitle">${marca(t.note)||marca(t.cat)} ${t.scope==='familiar'?'<span class="tag fam">Fam</span>':''}</div>
+        <div class="rsub">${marca(t.cat)}</div>
       </div>
       <div>
         <div class="ramt num ${t.type==='ingreso'?'pos':'neg'}">${t.type==='ingreso'?'+':'−'}${fmtRaw(t.amount,t.cur).replace('−','')}</div>
-        <div class="rextra">${fechaCorta(t.date)} · ${esc(userName(t.owner))}</div>
+        <div class="rextra">${buscando?fecha(t.date):fechaCorta(t.date)} · ${marca(userName(t.owner))}</div>
       </div>
     </div>`).join('')}</div>`;
 }
@@ -2056,6 +2158,7 @@ document.addEventListener('click',e=>{
     curtog:()=>{cur=cur==='ARS'?'USD':'ARS';render()},
     per:()=>{dashPer=b.dataset.p;render()},
     mv:()=>{mvYM=shiftYM(mvYM,Number(b.dataset.d));render()},
+    limpiarq:()=>{q='';const n=$('#q');if(n){n.value='';n.focus()}pintarResultados()},
     theme:()=>setTheme(b.dataset.t),
     haptog:()=>{lsSet(HAP,hapOn()?'no':'si');render(true);if(hapOn())hap('ok')},
     pinnew:askPin,
@@ -2091,6 +2194,10 @@ document.addEventListener('click',e=>{
 document.addEventListener('keydown',e=>{
   if(e.target.matches('input,textarea')&&e.key.length===1) hap('key');
 },true);
+/* buscador: redibuja la lista sin rearmar la pantalla */
+document.addEventListener('input',e=>{
+  if(e.target.id==='q'){ q=e.target.value; pintarResultados() }
+});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeForm()});
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e});
 
