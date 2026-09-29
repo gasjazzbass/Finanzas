@@ -338,10 +338,13 @@ main{flex:1;width:100%;max-width:1320px;margin:0 auto;
 .al.rojo .bar i{background:var(--neg)}
 .al.amarillo .bar i{background:var(--warn)}
 .al.verde .bar i,.al.logro .bar i{background:var(--pos)}
-/* puntito rojo sobre la campana */
+/* puntito rojo de avisos sin ver */
 .conpunto{position:relative}
 .conpunto::after{content:"";position:absolute;top:5px;right:5px;width:8px;height:8px;
   border-radius:50%;background:var(--neg);border:2px solid var(--bg)}
+#nav button{position:relative}
+#nav button.conpunto::after{top:7px;right:auto;left:calc(50% + 7px);width:7px;height:7px;border-width:1.5px}
+@media(min-width:900px){#nav button.conpunto::after{top:10px;left:auto;right:-10px}}
 
 /* fila de categorías que se desliza de lado, pegada a los bordes */
 .chipsrow{display:flex;gap:7px;overflow-x:auto;scrollbar-width:none;
@@ -423,7 +426,6 @@ mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;bor
           <div class="hmark">ORBIT</div>
           <div class="hspace"></div>
           <button class="iconbtn curbtn num" data-act="curtog" id="curBtn">$ ARS</button>
-          <button class="iconbtn" data-act="go" data-v="alertas" title="Alertas" id="belBtn"></button>
           <button class="iconbtn" data-act="go" data-v="set" title="Ajustes" id="setBtn"></button>
         </div>
       </div>
@@ -1250,11 +1252,13 @@ function askPin(){
 /* ============================================================
    SHELL
    ============================================================ */
-const VIEWS=[['dash','Resumen','dash'],['mov','Movim.','mov'],['fijos','Fijos','fijos'],['ahorro','Ahorros','ahorro'],['inv','Inversión','inv']];
+/* La barra de abajo lleva cinco. "Fijos y deudas" salió de acá pero sigue
+   entera: se entra desde el Resumen y desde Ajustes. */
+const VIEWS=[['dash','Resumen','dash'],['mov','Movim.','mov'],['ahorro','Ahorros','ahorro'],
+             ['inv','Inversión','inv'],['alertas','Alertas','campana']];
 function boot(){
   $('#auth').classList.add('hide'); $('#app').classList.remove('hide');
   $('#setBtn').innerHTML=svg(IC.set);
-  $('#belBtn').innerHTML=svg(IC.campana);
   $('#nav').innerHTML=VIEWS.map(([k,l,i])=>`<button data-view="${k}">${svg(IC[i],1.5)}<span>${l}</span></button>`).join('');
   render();
   syncMercado(false);   /* busca dólar y precios del día, en silencio */
@@ -1268,10 +1272,13 @@ function render(keepScroll){
   const foco=(act&&act.id==='q')?act.selectionStart:null;
   $('#nav').querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.view===view));
   $('#setBtn').classList.toggle('on',view==='set');
-  const rojas=alertasRojas().length;
-  $('#belBtn').classList.toggle('on',view==='alertas');
-  $('#belBtn').classList.toggle('conpunto',rojas>0);
-  $('#belBtn').title=rojas?rojas+' alerta'+(rojas===1?'':'s')+' encendida'+(rojas===1?'':'s'):'Alertas';
+  /* el puntito rojo vive ahora sobre la pestaña Alertas */
+  const nuevas=alertasNuevas().length;
+  const tabAl=$('#nav button[data-view="alertas"]');
+  if(tabAl){
+    tabAl.classList.toggle('conpunto',nuevas>0);
+    tabAl.title=nuevas?nuevas+' aviso'+(nuevas===1?'':'s')+' sin ver':'Alertas';
+  }
   $('#chips').querySelectorAll('.chip').forEach(b=>b.classList.toggle('on',b.dataset.scope===scope));
   $('#curBtn').textContent=cur==='ARS'?'$ ARS':'US$';
   $('#main').innerHTML=({dash:vDash,mov:vMov,fijos:vFijos,ahorro:vAhorro,inv:vInv,set:vSet,alertas:vAlertas})[view]();
@@ -1399,6 +1406,20 @@ function evaluarAlertas(){
 }
 const alertasRojas=()=>evaluarAlertas().filter(a=>a.nivel==='rojo');
 
+/* Avisos ya leídos. Se guardan por dispositivo: que vos los hayas visto no
+   se los tapa a la otra persona. La firma lleva el mes, así que en cuanto
+   empieza uno nuevo (o aparece un aviso distinto) vuelve a avisar. */
+const VIS='orbit_vistas';
+const firmaAl=a=>(a.id||a.titulo)+'|'+a.nivel+'|'+todayISO().slice(0,7);
+function vistas(){try{return JSON.parse(lsGet(VIS))||{}}catch(e){return {}}}
+function marcarVistas(){
+  const ym='|'+todayISO().slice(0,7), prev=vistas(), v={};
+  Object.keys(prev).forEach(k=>{if(k.endsWith(ym))v[k]=1});   /* tiro las del mes pasado */
+  alertasRojas().forEach(a=>v[firmaAl(a)]=1);
+  lsSet(VIS,JSON.stringify(v));
+}
+const alertasNuevas=()=>{const v=vistas();return alertasRojas().filter(a=>!v[firmaAl(a)])};
+
 /* ============================================================
    RESUMEN
    ============================================================ */
@@ -1411,7 +1432,7 @@ function vDash(){
 
   let al='';
   /* solo las 3 primeras: apilar diez avisos no ayuda a nadie */
-  const rojas=alertasRojas();
+  const rojas=alertasNuevas();
   rojas.slice(0,3).forEach(a=>{
     al+=`<div class="alert" style="border-color:color-mix(in srgb,var(--neg) 35%,transparent);
       background:color-mix(in srgb,var(--neg) 7%,transparent);color:var(--neg)">◆
@@ -1467,10 +1488,11 @@ function vDash(){
       <div class="cell"><div class="klbl">Gastos</div><div class="kval num neg">${fmt(gas)}</div></div>
       <div class="cell"><div class="klbl">Resultado</div><div class="kval num ${bal>=0?'pos':'neg'}">${fmt(bal)}</div></div>
       <div class="cell"><div class="klbl">Tasa de ahorro</div><div class="kval num">${ing>0?Math.round(tasa)+'%':'—'}</div><div class="ksub">De cada $100 que entran</div></div>
-      <div class="cell"><div class="klbl">Gasto fijo mensual</div><div class="kval num">${fmt(
+      <div class="cell" data-act="go" data-v="fijos" style="cursor:pointer">
+        <div class="klbl">Gasto fijo mensual</div><div class="kval num">${fmt(
         F('rec').filter(r=>r.active!==false&&r.type==='gasto').reduce((a,r)=>a+toARS(r.amount,r.cur),0)
         +F('debts').filter(d=>d.pagadas<d.cuotas).reduce((a,d)=>a+toARS(d.cuota,d.cur),0))}</div>
-        <div class="ksub">Fijos + cuotas</div></div>
+        <div class="ksub">Fijos + cuotas · tocá para ver</div></div>
     </div>
   </div>
 
@@ -1573,11 +1595,24 @@ function movResultados(){
       : `<div class="hallazgo">Nada coincide con ${que}.
          ${buscando?'Probá con parte del detalle, una categoría, un mes o un importe.':'Probá con otro mes.'}</div>`;
   }
-  return cabecera+`
+  /* con un filtro puesto, lo primero que se quiere ver es cuánto suma */
+  const filtrado=buscando||qcat;
+  const total=todos.reduce((a,t)=>a+toARS(t.amount,t.cur),0);
+  const mezcla=ing>0&&gas>0;
+  const totalCard=filtrado&&todos.length?`
+    <div class="grid g2" style="margin-bottom:1px">
+      <div class="cell wide">
+        <div class="klbl">Total${qcat?' en '+esc(qcat):' de la búsqueda'}</div>
+        <div class="kval big num">${fmt(total)}</div>
+        <div class="ksub">${todos.length} movimiento${todos.length===1?'':'s'} ·
+          promedio ${fmt(total/todos.length)}${mezcla?' · mezcla ingresos y gastos':''}</div>
+      </div>
+    </div>`:'';
+  return cabecera+totalCard+`
     <div class="grid g3" style="margin-bottom:14px">
       <div class="cell"><div class="klbl">Ingresos</div><div class="kval num pos">${fmt(ing)}</div></div>
       <div class="cell"><div class="klbl">Gastos</div><div class="kval num neg">${fmt(gas)}</div></div>
-      <div class="cell"><div class="klbl">${buscando?'Neto':'Balance'}</div><div class="kval num ${ing-gas>=0?'pos':'neg'}">${fmt(ing-gas)}</div></div>
+      <div class="cell"><div class="klbl">${filtrado?'Neto':'Balance'}</div><div class="kval num ${ing-gas>=0?'pos':'neg'}">${fmt(ing-gas)}</div></div>
     </div>
     ${txRows(L)}`;
 }
@@ -1918,6 +1953,17 @@ function vSet(){
       <h3>Instalar</h3>
       <div class="help" style="margin:0 0 14px">Agregala a la pantalla de inicio para abrirla como una app, sin la barra del navegador.</div>
       <button class="btn sm" data-act="install">Cómo instalarla</button></div>`}
+  </div>
+
+  <div class="sect">
+    <div class="sechead"><div class="sectitle">Otras pantallas</div></div>
+    <div class="rows">
+      <div class="row" data-act="go" data-v="fijos">
+        <div class="rmain"><div class="rtitle">Fijos y deudas</div>
+        <div class="rsub">Servicios y suscripciones, deudas y cuotas</div></div>
+        <div class="rextra">›</div>
+      </div>
+    </div>
   </div>
 
   <div class="sect">
@@ -2492,7 +2538,8 @@ function importar(){
    ============================================================ */
 document.addEventListener('click',e=>{
   const kb=e.target.closest('#keys button[data-k]'); if(kb){hap('key');pinPress(kb.dataset.k);return}
-  const nb=e.target.closest('#nav button'); if(nb){hap('nav');view=nb.dataset.view;render();return}
+  const nb=e.target.closest('#nav button');
+  if(nb){hap('nav');view=nb.dataset.view;if(view==='alertas')marcarVistas();render();return}
   const cb=e.target.closest('#chips .chip'); if(cb&&cb.dataset.scope){hap('sel');scope=cb.dataset.scope;render();return}
   const sf=e.target.closest('.segf button'); if(sf) hap('sel');
   const b=e.target.closest('[data-act]'); if(!b)return;
@@ -2513,7 +2560,7 @@ document.addEventListener('click',e=>{
         try{ await cambiarNombre(n) }catch(e){ return ferr(e.message) }
         render(); toast('Listo');
       }}),
-    logout, go:()=>{view=b.dataset.v;render()},
+    logout, go:()=>{view=b.dataset.v;if(view==='alertas')marcarVistas();render()},
     curtog:()=>{cur=cur==='ARS'?'USD':'ARS';render()},
     per:()=>{dashPer=b.dataset.p;render()},
     mv:()=>{mvYM=shiftYM(mvYM,Number(b.dataset.d));render()},
