@@ -510,7 +510,7 @@ const IC={
 const svg=(p,w=1.4)=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
 
 let S=null, me=null, view='dash', cur='ARS', scope='all';
-let mvYM=new Date().toISOString().slice(0,7), dashPer='m', q='', qcat='';
+let mvYM=new Date().toISOString().slice(0,7), dashPer='m', q='', qcat='', qbox='';
 const alAbiertas=new Set();   /* alertas desplegadas */
 let deferredPrompt=null, hiddenAt=0;
 
@@ -521,7 +521,7 @@ function blank(){
       senales:{excede:true, ahorro:{on:true,v:10}, ritmo:true, grande:{on:true,v:0},
                cuotas:{on:true,v:30}, objetivos:true}},
     market:{dolares:[],px:{},updated:null,error:null},
-    tx:[],rec:[],debts:[],boxes:[],fds:[],holds:[],alertas:[]};
+    tx:[],rec:[],debts:[],boxes:[],fds:[],holds:[],alertas:[],cajamov:[]};
 }
 function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
 function lsSet(k,v){try{localStorage.setItem(k,v)}catch(e){toast('No se pudo guardar')}}
@@ -720,7 +720,7 @@ const sinAuto=()=>S.holds.filter(h=>h.auto!==false&&!getPx(h)).map(h=>h.tk);
    Si no hay señal la app funciona igual y sube los cambios al volver.
    ============================================================ */
 const CLOUD='orbit_cloud', SB='orbit_sb', SNAP='orbit_snap', PULL='orbit_pull';
-const COLS=['tx','rec','debts','boxes','fds','holds','alertas'];   /* colecciones que viajan */
+const COLS=['tx','rec','debts','boxes','fds','holds','alertas','cajamov'];   /* colecciones que viajan */
 let sbSes=null, cloudCfg=null, syncTimer=null, syncing2=false, syncEstado='';
 
 function cargarNube(){
@@ -1756,6 +1756,38 @@ function vAhorro(){
         </div>
       </div>`}).join('')}</div>`:'<div class="empty">Sin cajas de ahorro</div>'}
     <div class="help" style="margin-top:12px">Depositar o retirar ajusta el ahorro pero no cuenta como ingreso ni gasto: es plata que cambia de lugar, no que entra o sale.</div>
+  </div>
+  ${listaCajaMov(B)}`;
+}
+/* registro de entradas y salidas de las cajas */
+function listaCajaMov(B){
+  const ids=new Set(B.map(b=>b.id));
+  let L=(S.cajamov||[]).filter(m=>ids.has(m.boxId));
+  if(qbox) L=L.filter(m=>m.boxId===qbox);
+  /* mismo día: ordena por el momento en que se cargó */
+  L=L.sort((a,b)=>b.date.localeCompare(a.date)||(b.ts||0)-(a.ts||0)||b.id.localeCompare(a.id));
+  if(!(S.cajamov||[]).length&&!B.length) return '';
+  const TOPE=25, vis=L.slice(0,TOPE);
+  const nombre=id=>{const b=S.boxes.find(x=>x.id===id);return b?b.name:'Caja borrada'};
+  return `
+  <div class="sect">
+    <div class="sechead"><div class="sectitle">Registro de movimientos</div></div>
+    ${B.length>1?`<div class="chipsrow" id="boxchips">
+      <button class="chip ${qbox?'':'on'}" data-act="fbox" data-c="">Todas</button>
+      ${B.map(b=>`<button class="chip ${qbox===b.id?'on':''}" data-act="fbox" data-c="${b.id}">${esc(b.name)}</button>`).join('')}
+    </div>`:''}
+    ${vis.length?`<div class="rows">
+      ${vis.map(m=>`<div class="row" data-act="editcajamov" data-id="${m.id}">
+        <div class="rmain">
+          <div class="rtitle">${m.sign>0?'Depósito':'Retiro'}${qbox?'':' · '+esc(nombre(m.boxId))}</div>
+          <div class="rsub">${fecha(m.date)} · ${esc(userName(m.owner))}${m.note?' · '+esc(m.note):''}</div>
+        </div>
+        <div><div class="ramt num ${m.sign>0?'pos':'neg'}">${m.sign>0?'+':'−'}${fmtRaw(m.amount,m.cur).replace('−','')}</div></div>
+      </div>`).join('')}</div>
+      ${L.length>TOPE?`<div class="help" style="margin-top:12px">Muestro los ${TOPE} más recientes de ${L.length}.</div>`:''}`
+    :`<div class="empty">Sin movimientos registrados</div>
+      <div class="help" style="margin-top:12px">Cada vez que deposites o retires de una caja queda anotado acá:
+      cuánto, cuándo, quién y por qué.</div>`}
   </div>`;
 }
 
@@ -2322,7 +2354,10 @@ function formBox(id){
   openForm({
     title:b?'Editar caja':'Nueva caja de ahorro',
     values:b||{},
-    del:b?del('boxes',id):null, delMsg:'¿Borrar esta caja de ahorro?',
+    del:b?()=>{S.boxes=S.boxes.filter(x=>x.id!==id);
+      S.cajamov=(S.cajamov||[]).filter(x=>x.boxId!==id);   /* se va con su historial */
+      save();render();toast('Eliminado')}:null,
+    delMsg:'¿Borrar esta caja de ahorro? También se borra su registro de movimientos.',
     fields:[
       {k:'name',label:'Nombre',req:true,ph:'Ej: Dólares, Viaje, Emergencia'},
       {k:'amount',label:'Monto actual',type:'number',step:'0.01',req:true,half:true},
@@ -2332,20 +2367,72 @@ function formBox(id){
     onSave(v){
       const o={id:b?b.id:uid(),name:v.name,amount:Number(v.amount),goal:Number(v.goal)||0,
         cur:v.cur,owner:v.owner,scope:v.scope};
-      if(b)S.boxes[S.boxes.findIndex(x=>x.id===b.id)]=o; else S.boxes.push(o);
+      if(!S.cajamov) S.cajamov=[];
+      if(b){
+        /* si tocaste el saldo a mano, queda anotado como ajuste */
+        const dif=Number(v.amount)-Number(b.amount);
+        if(Math.abs(dif)>0.004) S.cajamov.push({id:uid(),boxId:b.id,date:todayISO(),
+          sign:dif>0?1:-1,amount:Math.abs(dif),cur:v.cur,note:'Ajuste de saldo',
+          owner:miId(),scope:v.scope,ts:Date.now()});
+        S.boxes[S.boxes.findIndex(x=>x.id===b.id)]=o;
+      }else{
+        S.boxes.push(o);
+        if(Number(v.amount)>0) S.cajamov.push({id:uid(),boxId:o.id,date:todayISO(),
+          sign:1,amount:Number(v.amount),cur:v.cur,note:'Saldo inicial',
+          owner:v.owner,scope:v.scope,ts:Date.now()});
+      }
       save();render();toast('Guardado');
     }
   });
+}
+/* aplica (+1) o revierte (-1) un movimiento sobre el saldo de su caja */
+function aplicarCajaMov(m,sentido){
+  const b=S.boxes.find(x=>x.id===m.boxId); if(!b) return;
+  b.amount=Math.max(Number(b.amount)+sentido*Number(m.sign)*Number(m.amount),0);
 }
 function boxMov(id,sign){
   const b=S.boxes.find(x=>x.id===id); if(!b)return;
   openForm({
     title:(sign>0?'Depositar en ':'Retirar de ')+b.name,
     ok:sign>0?'Depositar':'Retirar',
-    fields:[{k:'m',label:'Monto en '+b.cur,type:'number',step:'0.01',req:true}],
+    values:{date:todayISO()},
+    fields:[
+      {k:'m',label:'Monto en '+b.cur,type:'number',step:'0.01',req:true,half:true},
+      {k:'date',label:'Fecha',type:'date',req:true,half:true},
+      {k:'note',label:'Motivo (opcional)',ph:sign>0?'Ej: ahorro del mes':'Ej: pago del auto'},
+      ownerF()
+    ],
     onSave(v){
-      b.amount=Math.max(Number(b.amount)+sign*Number(v.m),0);
-      save();render();toast('Saldo actualizado');
+      const mov={id:uid(),boxId:b.id,date:v.date,sign,amount:Number(v.m),cur:b.cur,
+        note:v.note||'',owner:v.owner,scope:b.scope,ts:Date.now()};
+      if(!S.cajamov) S.cajamov=[];
+      S.cajamov.push(mov);
+      aplicarCajaMov(mov,1);
+      save();render();toast(sign>0?'Depósito registrado':'Retiro registrado');
+    }
+  });
+}
+function formCajaMov(id){
+  const m=(S.cajamov||[]).find(x=>x.id===id); if(!m)return;
+  const b=S.boxes.find(x=>x.id===m.boxId);
+  openForm({
+    title:'Editar '+(m.sign>0?'depósito':'retiro'),
+    values:{...m,m:m.amount,tipo:m.sign>0?'dep':'ret'},
+    del:()=>{aplicarCajaMov(m,-1);S.cajamov=S.cajamov.filter(x=>x.id!==m.id);save();render();toast('Eliminado')},
+    delMsg:'¿Borrar este movimiento? El saldo de la caja vuelve atrás.',
+    fields:[
+      {k:'tipo',label:'Tipo',type:'seg',opts:[{v:'dep',l:'Depósito'},{v:'ret',l:'Retiro'}]},
+      {k:'m',label:'Monto en '+m.cur,type:'number',step:'0.01',req:true,half:true},
+      {k:'date',label:'Fecha',type:'date',req:true,half:true},
+      {k:'note',label:'Motivo (opcional)'},
+      ownerF()
+    ],
+    onSave(v){
+      aplicarCajaMov(m,-1);                       /* saco el efecto viejo */
+      m.amount=Number(v.m); m.date=v.date; m.note=v.note||'';
+      m.owner=v.owner; m.sign=v.tipo==='ret'?-1:1;
+      aplicarCajaMov(m,1);                        /* y aplico el nuevo */
+      save();render();toast('Actualizado');
     }
   });
 }
@@ -2626,6 +2713,8 @@ document.addEventListener('click',e=>{
     newrec:()=>formRec(), editrec:()=>formRec(id), recgo:()=>recGo(id),
     newdebt:()=>formDebt(), editdebt:()=>formDebt(id), paydebt:()=>payDebt(id),
     newbox:()=>formBox(), editbox:()=>formBox(id), boxmov:()=>boxMov(id,Number(b.dataset.s)),
+    editcajamov:()=>formCajaMov(id),
+    fbox:()=>{const c=b.dataset.c||''; qbox=(qbox===c?'':c); render(true)},
     newfd:()=>formFD(), editfd:()=>formFD(id),
     newhold:()=>formHold(), edithold:()=>formHold(id), price:()=>formPrice(id),
     sync:()=>syncMercado(true),
