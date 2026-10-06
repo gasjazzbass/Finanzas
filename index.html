@@ -511,6 +511,7 @@ const svg=(p,w=1.4)=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
 
 let S=null, me=null, view='dash', cur='ARS', scope='all';
 let mvYM=new Date().toISOString().slice(0,7), dashPer='m', q='', qcat='', qbox='';
+let compYM=new Date().toISOString().slice(0,7), compPor='cat', compIgual=true;
 const alAbiertas=new Set();   /* alertas desplegadas */
 let deferredPrompt=null, hiddenAt=0;
 
@@ -1299,7 +1300,8 @@ function render(keepScroll){
   }
   $('#chips').querySelectorAll('.chip').forEach(b=>b.classList.toggle('on',b.dataset.scope===scope));
   $('#curBtn').textContent=cur==='ARS'?'$ ARS':'US$';
-  $('#main').innerHTML=({dash:vDash,mov:vMov,fijos:vFijos,ahorro:vAhorro,inv:vInv,set:vSet,alertas:vAlertas})[view]();
+  $('#main').innerHTML=({dash:vDash,mov:vMov,fijos:vFijos,ahorro:vAhorro,inv:vInv,
+    set:vSet,alertas:vAlertas,comp:vComp})[view]();
   $('#fab').classList.toggle('hide',!(view==='dash'||view==='mov'));
   window.scrollTo({top:keepScroll?y:0});
   if(foco!==null){const n=$('#q');if(n){n.focus();try{n.setSelectionRange(foco,foco)}catch(e){}}}
@@ -1374,7 +1376,7 @@ function evaluarAlertas(){
   if(sn.ritmo){
     const ant=shiftYM(ym,-1), antes=gastoHasta(ant,dia), ahora=gastoHasta(ym,dia);
     const dif=antes>0?(ahora-antes)/antes*100:0;
-    A.push({grupo:'senal', nivel:antes<=0?'verde':dif>=30?'rojo':dif>0?'amarillo':'verde',
+    A.push({grupo:'senal', ir:'comp', nivel:antes<=0?'verde':dif>=30?'rojo':dif>0?'amarillo':'verde',
       titulo:'Ritmo contra el mes pasado',
       valor:fmt(ahora)+' vs '+fmt(antes),
       detalle:antes<=0?'Sin gastos el mes pasado para comparar'
@@ -1517,6 +1519,14 @@ function vDash(){
   </div>
 
   <div class="sect"><div class="panel"><h3>Ingresos vs gastos · 6 meses</h3>${barsChart(ser)}</div></div>
+
+  <div class="sect">
+    <div class="rows"><div class="row" data-act="go" data-v="comp">
+      <div class="rmain"><div class="rtitle">Mes contra mes</div>
+        <div class="rsub">En qué gastaste más y en qué menos que el mes pasado</div></div>
+      <div class="rextra">›</div>
+    </div></div>
+  </div>
   <div class="sect"><div class="panel"><h3>Gastos por categoría</h3>${cats.length?donut(cats):'<div class="empty" style="border:0">Sin gastos en el período</div>'}</div></div>
   <div class="sect"><div class="panel"><h3>Flujo acumulado · 12 meses</h3>${lineChart(acc)}</div></div>
 
@@ -1859,17 +1869,111 @@ function vInv(){
 }
 
 /* ============================================================
+   MES CONTRA MES
+   ============================================================ */
+const ETIQ={cat:'Categoría',owner:'Quién',scope:'Ámbito'};
+function compararMes(ym,por,hastaDia){
+  const ant=shiftYM(ym,-1);
+  const corte=t=>hastaDia?(+t.date.slice(8)<=hastaDia):true;
+  const gastos=m=>F('tx').filter(t=>t.type==='gasto'&&t.date.slice(0,7)===m&&corte(t));
+  const G={};
+  const sumar=(lista,campo)=>lista.forEach(t=>{
+    const k=por==='owner'?userName(t.owner):por==='scope'?(t.scope==='familiar'?'Familiar':'Personal'):t.cat;
+    G[k]=G[k]||{a:0,b:0}; G[k][campo]+=toARS(t.amount,t.cur);
+  });
+  sumar(gastos(ym),'a'); sumar(gastos(ant),'b');
+  const filas=Object.entries(G).map(([k,v])=>({
+    nombre:k, act:v.a, prev:v.b, dif:v.a-v.b,
+    pct:v.b>0?(v.a-v.b)/v.b*100:(v.a>0?null:0)      /* null = no existía antes */
+  })).sort((x,y)=>Math.abs(y.dif)-Math.abs(x.dif));
+  const totA=filas.reduce((s,f)=>s+f.act,0), totB=filas.reduce((s,f)=>s+f.prev,0);
+  return {filas,totA,totB,ant,max:Math.max(...filas.map(f=>Math.max(f.act,f.prev)),1)};
+}
+function vComp(){
+  const hoy=todayISO(), esActual=compYM===hoy.slice(0,7);
+  const dia=+hoy.slice(8);
+  const parcial=esActual&&compIgual;
+  const C=compararMes(compYM,compPor,parcial?dia:null);
+  const dif=C.totA-C.totB, pct=C.totB>0?dif/C.totB*100:null;
+  const top=C.filas.filter(f=>f.dif>0)[0], baj=C.filas.filter(f=>f.dif<0)[0];
+
+  const chip=(k,l)=>`<button class="chip ${compPor===k?'on':''}" data-act="compor" data-k="${k}">${l}</button>`;
+  const barra=(v,color)=>`<div class="bar" style="height:3px"><i style="width:${Math.max(v/C.max*100,1)}%;background:${color}"></i></div>`;
+
+  return `
+  <div class="sect">
+    <div class="sechead">
+      <div class="mnav">
+        <button class="iconbtn" data-act="compmv" data-d="-1">‹</button>
+        <div class="mlbl">${ymLbl(compYM)}</div>
+        <button class="iconbtn" data-act="compmv" data-d="1">›</button>
+      </div>
+      <div class="hspace"></div>
+    </div>
+    ${esActual?`<div class="chipsrow">
+      <button class="chip ${compIgual?'on':''}" data-act="compmodo" data-v="igual">Hasta hoy (día ${dia})</button>
+      <button class="chip ${compIgual?'':'on'}" data-act="compmodo" data-v="full">Mes completo</button>
+    </div>`:''}
+    <div class="grid g2" style="margin-bottom:1px">
+      <div class="cell wide">
+        <div class="klbl">${dif>=0?'Gastaste más que en':'Gastaste menos que en'} ${ymLbl(C.ant).split(' ')[0]}</div>
+        <div class="kval big num ${dif>0?'neg':'pos'}">${dif>=0?'+':'−'}${fmt(Math.abs(dif))}</div>
+        <div class="ksub">${pct===null?'Sin gastos el mes anterior para comparar'
+          :(dif>=0?'+':'')+Math.round(pct)+'% · '+fmt(C.totA)+' contra '+fmt(C.totB)}
+          ${parcial?'<br>Comparando los dos meses hasta el día '+dia+', para que sea justo.':''}</div>
+      </div>
+    </div>
+    <div class="grid g2">
+      <div class="cell"><div class="klbl">Lo que más subió</div>
+        <div class="kval num ${top?'neg':''}">${top?'+'+fmt(top.dif):'—'}</div>
+        <div class="ksub">${top?esc(top.nombre):'Nada subió'}</div></div>
+      <div class="cell"><div class="klbl">Lo que más bajó</div>
+        <div class="kval num ${baj?'pos':''}">${baj?'−'+fmt(Math.abs(baj.dif)):'—'}</div>
+        <div class="ksub">${baj?esc(baj.nombre):'Nada bajó'}</div></div>
+    </div>
+  </div>
+
+  <div class="sect">
+    <div class="sechead"><div class="sectitle">Comparar por</div></div>
+    <div class="chipsrow">${chip('cat','Categoría')}${chip('owner','Quién')}${chip('scope','Ámbito')}</div>
+    ${C.filas.length?`<div class="rows">
+      ${C.filas.map(f=>`<div class="row" style="cursor:default">
+        <div class="rmain" style="grid-column:1/-1">
+          <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline">
+            <div class="rtitle">${esc(f.nombre)}</div>
+            <div class="ramt num ${f.dif>0?'neg':f.dif<0?'pos':'dim'}">
+              ${f.dif===0?'igual':(f.dif>0?'+':'−')+fmt(Math.abs(f.dif))}</div>
+          </div>
+          <div class="rsub" style="display:flex;justify-content:space-between;gap:10px">
+            <span>${fmt(f.act)} · antes ${fmt(f.prev)}</span>
+            <span>${f.pct===null?(parcial?'no hubo hasta el día '+dia:'no hubo el mes pasado')
+                   :f.prev===0?'':(f.pct>=0?'+':'')+Math.round(f.pct)+'%'}</span>
+          </div>
+          <div style="margin-top:8px;display:flex;flex-direction:column;gap:4px">
+            ${barra(f.act,f.dif>0?'var(--neg)':'var(--pos)')}
+            ${barra(f.prev,'var(--dim2)')}
+          </div>
+        </div>
+      </div>`).join('')}</div>
+      <div class="help" style="margin-top:12px">La barra de arriba es ${ymLbl(compYM)} y la de abajo ${ymLbl(C.ant)}.
+      Rojo significa que gastaste más que el mes anterior; verde, menos.</div>`
+    :`<div class="empty">Sin gastos para comparar</div>`}
+  </div>`;
+}
+
+/* ============================================================
    PANTALLA DE ALERTAS
    ============================================================ */
 function tarjetaAlerta(a){
   const abrible=a.items&&a.items.length, abierta=abrible&&alAbiertas.has(a.key);
   const TOPE=12, lista=abrible?a.items.slice(0,TOPE):[];
   const accion=a.edit?`data-act="edittope" data-id="${a.edit}"`
-              :abrible?`data-act="desplegar" data-k="${a.key}"`:'';
-  return `<div class="al ${a.nivel} ${a.edit||abrible?'tocable':''}" ${accion}>
+              :abrible?`data-act="desplegar" data-k="${a.key}"`
+              :a.ir?`data-act="go" data-v="${a.ir}"`:'';
+  return `<div class="al ${a.nivel} ${a.edit||abrible||a.ir?'tocable':''}" ${accion}>
     <div class="top">
       <i class="luz"></i>
-      <div class="ti"><div class="tt">${esc(a.titulo)}${abrible?`<span class="chev ${abierta?'ab':''}">›</span>`:''}</div>
+      <div class="ti"><div class="tt">${esc(a.titulo)}${abrible?`<span class="chev ${abierta?'ab':''}">›</span>`:a.ir?'<span class="chev">›</span>':''}</div>
         <div class="dd">${esc(a.detalle)}</div></div>
       <div class="vv num">${esc(a.valor)}</div>
     </div>
@@ -2032,6 +2136,11 @@ function vSet(){
       <div class="row" data-act="go" data-v="fijos">
         <div class="rmain"><div class="rtitle">Fijos y deudas</div>
         <div class="rsub">Servicios y suscripciones, deudas y cuotas</div></div>
+        <div class="rextra">›</div>
+      </div>
+      <div class="row" data-act="go" data-v="comp">
+        <div class="rmain"><div class="rtitle">Mes contra mes</div>
+        <div class="rsub">Comparar los gastos con el mes anterior</div></div>
         <div class="rextra">›</div>
       </div>
     </div>
@@ -2694,6 +2803,9 @@ document.addEventListener('click',e=>{
     cat:()=>{const c=b.dataset.c||''; qcat=(qcat===c?'':c); pintarResultados()},
     newtope:()=>formTope(), edittope:()=>formTope(id),
     desplegar:()=>{const k=b.dataset.k; alAbiertas.has(k)?alAbiertas.delete(k):alAbiertas.add(k); render(true)},
+    compmv:()=>{compYM=shiftYM(compYM,Number(b.dataset.d));render()},
+    compor:()=>{compPor=b.dataset.k;render(true)},
+    compmodo:()=>{compIgual=b.dataset.v==='igual';render(true)},
     param:()=>formParam(b.dataset.k),
     senal:()=>{
       const k=b.dataset.k, sn=S.settings.senales;
