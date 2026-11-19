@@ -160,10 +160,11 @@ main{flex:1;width:100%;max-width:1320px;margin:0 auto;
   border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)
 }
 #nav button{
-  flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;
-  padding:11px 2px 9px;color:var(--dim2);font-size:8.5px;letter-spacing:.09em;text-transform:uppercase;
+  flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:5px;
+  padding:11px 2px 9px;color:var(--dim2);font-size:8px;letter-spacing:.04em;text-transform:uppercase;
   transition:color .2s var(--ease-out),transform .3s var(--ease)
 }
+#nav button span{display:block;max-width:100%;text-align:center;line-height:1.15}
 #nav button svg{width:21px;height:21px;transition:transform .34s var(--ease)}
 #nav button:active{transform:scale(.93)}
 #nav button.on{color:var(--txt)}
@@ -189,6 +190,7 @@ main{flex:1;width:100%;max-width:1320px;margin:0 auto;
     background:transparent;backdrop-filter:none;padding:0 26px;gap:30px}
   #nav button{flex:none;flex-direction:row;gap:9px;padding:13px 0;font-size:10px;letter-spacing:.16em;
     border-bottom:1px solid transparent}
+  #nav button span{white-space:nowrap;max-width:none}
   #nav button.on{border-bottom-color:var(--solid)}
   #nav button svg{width:15px;height:15px}
   main{padding:30px 26px 90px}
@@ -357,13 +359,10 @@ main{flex:1;width:100%;max-width:1320px;margin:0 auto;
 .al.rojo .bar i{background:var(--neg)}
 .al.amarillo .bar i{background:var(--warn)}
 .al.verde .bar i,.al.logro .bar i{background:var(--pos)}
-/* puntito rojo de avisos sin ver */
+/* puntito rojo de avisos sin ver, sobre la campana del encabezado */
 .conpunto{position:relative}
-.conpunto::after{content:"";position:absolute;top:5px;right:5px;width:8px;height:8px;
+.conpunto::after{content:"";position:absolute;top:4px;right:4px;width:8px;height:8px;
   border-radius:50%;background:var(--neg);border:2px solid var(--bg)}
-#nav button{position:relative}
-#nav button.conpunto::after{top:7px;right:auto;left:calc(50% + 7px);width:7px;height:7px;border-width:1.5px}
-@media(min-width:900px){#nav button.conpunto::after{top:10px;left:auto;right:-10px}}
 
 /* fila de categorías que se desliza de lado, pegada a los bordes */
 .chipsrow{display:flex;gap:7px;overflow-x:auto;scrollbar-width:none;
@@ -445,6 +444,7 @@ mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;bor
           <div class="hmark">ORBIT</div>
           <div class="hspace"></div>
           <button class="iconbtn curbtn num" data-act="curtog" id="curBtn">$ ARS</button>
+          <button class="iconbtn" data-act="go" data-v="alertas" title="Alertas" id="alBtn"></button>
           <button class="iconbtn" data-act="go" data-v="set" title="Ajustes" id="setBtn"></button>
         </div>
       </div>
@@ -1273,12 +1273,14 @@ function askPin(){
 /* ============================================================
    SHELL
    ============================================================ */
-/* La barra de abajo lleva cinco. "Fijos y deudas" salió de acá pero sigue
-   entera: se entra desde el Resumen y desde Ajustes. */
+/* La barra lleva cinco: Resumen, Movimientos, Ahorros, Inversión y
+   Gastos fijos. Alertas salió de la barra y quedó en la campana,
+   al lado del engranaje. */
 const VIEWS=[['dash','Resumen','dash'],['mov','Movim.','mov'],['ahorro','Ahorros','ahorro'],
-             ['inv','Inversión','inv'],['alertas','Alertas','campana']];
+             ['inv','Inversión','inv'],['fijos','Gastos fijos','fijos']];
 function boot(){
   $('#auth').classList.add('hide'); $('#app').classList.remove('hide');
+  $('#alBtn').innerHTML=svg(IC.campana);
   $('#setBtn').innerHTML=svg(IC.set);
   $('#nav').innerHTML=VIEWS.map(([k,l,i])=>`<button data-view="${k}">${svg(IC[i],1.5)}<span>${l}</span></button>`).join('');
   render();
@@ -1293,12 +1295,13 @@ function render(keepScroll){
   const foco=(act&&act.id==='q')?act.selectionStart:null;
   $('#nav').querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.view===view));
   $('#setBtn').classList.toggle('on',view==='set');
-  /* el puntito rojo vive ahora sobre la pestaña Alertas */
+  /* el puntito rojo vive en la campana, al lado de Ajustes */
   const nuevas=alertasNuevas().length;
-  const tabAl=$('#nav button[data-view="alertas"]');
-  if(tabAl){
-    tabAl.classList.toggle('conpunto',nuevas>0);
-    tabAl.title=nuevas?nuevas+' aviso'+(nuevas===1?'':'s')+' sin ver':'Alertas';
+  const al=$('#alBtn');
+  if(al){
+    al.classList.toggle('on',view==='alertas');
+    al.classList.toggle('conpunto',nuevas>0);
+    al.title=nuevas?nuevas+' aviso'+(nuevas===1?'':'s')+' sin ver':'Alertas';
   }
   $('#chips').querySelectorAll('.chip').forEach(b=>b.classList.toggle('on',b.dataset.scope===scope));
   $('#curBtn').textContent=cur==='ARS'?'$ ARS':'US$';
@@ -2266,11 +2269,6 @@ function vSet(){
   <div class="sect">
     <div class="sechead"><div class="sectitle">Otras pantallas</div></div>
     <div class="rows">
-      <div class="row" data-act="go" data-v="fijos">
-        <div class="rmain"><div class="rtitle">Fijos y deudas</div>
-        <div class="rsub">Alquiler, servicios, impuestos, tarjetas y cuotas</div></div>
-        <div class="rextra">›</div>
-      </div>
       <div class="row" data-act="go" data-v="comp">
         <div class="rmain"><div class="rtitle">Mes contra mes</div>
         <div class="rsub">Comparar los gastos con el mes anterior</div></div>
