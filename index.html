@@ -244,6 +244,8 @@ main{flex:1;width:100%;max-width:1320px;margin:0 auto;
   border:1px solid var(--line);padding:2px 6px;color:var(--dim);border-radius:2px}
 .tag.fam{border-color:color-mix(in srgb,var(--pos) 40%,transparent);color:var(--pos)}
 .tag.ok{border-color:color-mix(in srgb,var(--pos) 40%,transparent);color:var(--pos)}
+.tag.warn{border-color:color-mix(in srgb,var(--warn) 45%,transparent);color:var(--warn)}
+.tag.bad{border-color:color-mix(in srgb,var(--neg) 40%,transparent);color:var(--neg)}
 .empty{padding:40px 20px;text-align:center;color:var(--dim2);font-size:10px;letter-spacing:.14em;
   text-transform:uppercase;border:1px solid var(--line);border-radius:var(--r)}
 
@@ -1323,6 +1325,89 @@ const gastoHasta=(ym,dia)=>mesDe(ym).filter(t=>t.type==='gasto'&&+t.date.slice(8
   .reduce((a,t)=>a+toARS(t.amount,t.cur),0);
 
 /* promedio mensual de los últimos 3 meses cerrados */
+/* Día en que cae un gasto fijo dentro de un mes (ym = '2026-11').
+   El día se guarda como "el N de cada mes" y puede ser 31. Antes,
+   Registrar recortaba siempre a 28 para no armar una fecha imposible.
+   El aviso y el registro usan ahora la misma cuenta: el día pedido,
+   o el último de ESE mes si no entra (31 en noviembre → 30; en
+   febrero, 28 o 29). El movimiento queda fechado ese día, en el mes
+   en curso. Cada mes se mira solo: lo que no se pagó en noviembre
+   no sigue vencido en diciembre. */
+const AVISO_DEF=3;
+function fechaFijo(day, ym){
+  const [y,m]=ym.split('-').map(Number);
+  /* m viene 1–12. Date(año, m, 0) es el día 0 del mes siguiente,
+     es decir el último día de este mes. */
+  const ultimo=new Date(y, m, 0).getDate();
+  let n=Math.round(Number(day));
+  if(!Number.isFinite(n)) n=1;
+  n=Math.min(Math.max(n,1), ultimo);
+  return ym+'-'+String(n).padStart(2,'0');
+}
+/* Sin el dato, o con un valor roto, se avisa 3 días antes. 0 es válido:
+   avisa el mismo día y nada más. */
+function diasAviso(r){
+  if(!r||r.aviso==null||r.aviso==='') return AVISO_DEF;
+  const n=Number(r.aviso);
+  if(!Number.isFinite(n)) return AVISO_DEF;
+  return Math.max(0, Math.round(n));
+}
+function fijoPagado(r, txs, ym){
+  return (txs||[]).some(t=>t&&t.recId===r.id&&typeof t.date==='string'&&t.date.slice(0,7)===ym);
+}
+/* estado: pagado | vencido | hoy | pronto | lejos. falta es en días
+   (negativo si el día ya pasó). */
+function estadoFijo(r, hoy, txs){
+  const ym=hoy.slice(0,7);
+  const vence=fechaFijo(r.day, ym);
+  const falta=days(hoy, vence);
+  const aviso=diasAviso(r);
+  let estado='lejos';
+  if(fijoPagado(r, txs, ym)) estado='pagado';
+  else if(falta<0) estado='vencido';
+  else if(falta===0) estado='hoy';
+  else if(falta<=aviso) estado='pronto';
+  return {rec:r, vence, falta, aviso, estado};
+}
+/* vencido < hoy < pronto en el calendario, así que ese orden coincide
+   con ordenar por fecha. Lo pagado va al final. */
+const ORDEN_VENCE={vencido:0,hoy:1,pronto:2,pagado:3,lejos:4};
+function vencimientos(lista, hoy, txs){
+  return (lista||[])
+    .filter(r=>r&&r.active!==false&&r.type==='gasto')
+    .map(r=>estadoFijo(r, hoy, txs))
+    .filter(x=>x.estado!=='lejos')
+    .sort((a,b)=>ORDEN_VENCE[a.estado]-ORDEN_VENCE[b.estado]
+      ||a.vence.localeCompare(b.vence)
+      ||String(a.rec.name||'').localeCompare(String(b.rec.name||''),'es'));
+}
+/* Si este mes ya se registró, el monto que se muestra es el del
+   movimiento (puede no coincidir con el habitual). */
+function montoMes(x, txs){
+  if(x.estado==='pagado'){
+    const ym=x.vence.slice(0,7);
+    const t=[...(txs||[])].reverse().find(t=>t&&t.recId===x.rec.id&&typeof t.date==='string'&&t.date.slice(0,7)===ym);
+    if(t) return Number(t.amount);
+  }
+  return Number(x.rec.amount);
+}
+function txtVence(x){
+  if(x.estado==='pagado') return 'Pagado este mes';
+  if(x.estado==='hoy') return 'Vence hoy';
+  if(x.estado==='vencido') return x.falta===-1?'Venció ayer':'Venció hace '+(-x.falta)+' días';
+  if(x.falta===1) return 'Vence mañana';
+  return 'Vence en '+x.falta+' días';
+}
+function etiquetaVence(x){
+  if(x.estado==='vencido') return '<span class="tag bad">Vencido</span>';
+  if(x.estado==='hoy') return '<span class="tag warn">Hoy</span>';
+  if(x.estado==='pronto') return x.falta===1
+    ?'<span class="tag warn">Mañana</span>'
+    :'<span class="tag warn">En '+x.falta+' días</span>';
+  if(x.estado==='pagado') return '<span class="tag ok">Registrado</span>';
+  return '';
+}
+
 function sugerirTope(cat){
   const ym=todayISO().slice(0,7);
   let tot=0;
@@ -1424,6 +1509,20 @@ function evaluarAlertas(){
         pct:Math.min(p,100)});
     });
   }
+
+  /* Vencimientos de los gastos fijos. Igual que el resto de las alertas,
+     miran toda la casa: el filtro Todo / Míos / Familiar no los cambia.
+     El Resumen sí respeta ese filtro. */
+  vencimientos(S.rec, hoy, S.tx).forEach(x=>{
+    const r=x.rec;
+    const nivel=x.estado==='pagado'?'verde':x.estado==='pronto'?'amarillo':'rojo';
+    const cerca=x.estado==='pronto'&&x.aviso>0?Math.round((x.aviso-x.falta)/x.aviso*100):100;
+    A.push({id:'vence:'+r.id, grupo:'vence', rec:r.id, nivel,
+      titulo:r.name, valor:fmtRaw(montoMes(x, S.tx), r.cur),
+      detalle:txtVence(x)+' · '+fechaCorta(x.vence)
+        +(r.scope==='familiar'?' · Familiar':'')+' · '+userName(r.owner),
+      pct:Math.max(0, Math.min(cerca,100))});
+  });
   return A;
 }
 const alertasRojas=()=>evaluarAlertas().filter(a=>a.nivel==='rojo');
@@ -1445,6 +1544,26 @@ const alertasNuevas=()=>{const v=vistas();return alertasRojas().filter(a=>!v[fir
 /* ============================================================
    RESUMEN
    ============================================================ */
+/* Solo lo que hay que mirar ahora: vencido, hoy o dentro de los días
+   de aviso. Respeta Todo / Míos / Familiar, como el resto del Resumen. */
+function bloqueVence(){
+  const lista=vencimientos(F('rec'), todayISO(), S.tx).filter(x=>x.estado!=='pagado');
+  if(!lista.length) return '';
+  return `<div class="sect">
+    <div class="sechead"><div class="sectitle">Vencimientos</div><div class="hspace"></div>
+      <button class="btn sm" data-act="go" data-v="fijos">Fijos</button></div>
+    <div class="rows">${lista.map(x=>{
+      const r=x.rec;
+      return `<div class="row" data-act="editrec" data-id="${r.id}">
+        <div class="rmain">
+          <div class="rtitle">${esc(r.name)} ${etiquetaVence(x)}${r.scope==='familiar'?' <span class="tag fam">Fam</span>':''}</div>
+          <div class="rsub">${esc(txtVence(x))} · ${fechaCorta(x.vence)} · ${esc(r.cat)} · ${esc(userName(r.owner))}</div>
+        </div>
+        <div><div class="ramt num">${fmtRaw(r.amount,r.cur)}</div></div>
+        <button class="btn sm rbtn" data-act="pagado" data-id="${r.id}">Pagado</button>
+      </div>`;
+    }).join('')}</div></div>`;
+}
 function vDash(){
   const P=patrimonio();
   const [f,t]=perRange(); const L=txRange(f,t);
@@ -1454,7 +1573,8 @@ function vDash(){
 
   let al='';
   /* solo las 3 primeras: apilar diez avisos no ayuda a nadie */
-  const rojas=alertasNuevas();
+  /* los vencimientos tienen su propio bloque, más abajo */
+  const rojas=alertasNuevas().filter(a=>a.grupo!=='vence');
   rojas.slice(0,3).forEach(a=>{
     al+=`<div class="alert" style="border-color:color-mix(in srgb,var(--neg) 35%,transparent);
       background:color-mix(in srgb,var(--neg) 7%,transparent);color:var(--neg)">◆
@@ -1469,9 +1589,6 @@ function vDash(){
   F('fds').forEach(x=>{const i=fdInteres(x); if(i.rest<=7&&i.rest>=0)
     al+=`<div class="alert">◆ <span><b>${esc(x.bank)}</b> vence en ${i.rest} día${i.rest===1?'':'s'} · ${fmtRaw(Number(x.amount)+i.full,x.cur)}</span></div>`});
   const ymNow=todayISO().slice(0,7);
-  const pend=F('rec').filter(r=>r.active!==false&&!S.tx.some(t=>t.recId===r.id&&t.date.slice(0,7)===ymNow));
-  if(pend.length) al+=`<div class="alert">◆ <span><b>${pend.length}</b> fijo${pend.length===1?'':'s'} sin registrar</span>
-    <button class="btn sm" data-act="go" data-v="fijos">Ver</button></div>`;
 
   const ser=[];
   for(let i=5;i>=0;i--){const ym=shiftYM(ymNow,-i); const l=F('tx').filter(x=>x.date.slice(0,7)===ym);
@@ -1486,6 +1603,7 @@ function vDash(){
     .map(([k,l])=>`<button class="chip ${dashPer===k?'on':''}" data-act="per" data-p="${k}">${l}</button>`).join('');
 
   return `${al}
+  ${bloqueVence()}
   <div class="sect">
     <div class="grid g2" style="margin-bottom:1px">
       <div class="cell wide">
@@ -1702,18 +1820,24 @@ function vFijos(){
   </div></div>
 
   <div class="sect">
-    <div class="sechead"><div class="sectitle">Servicios y suscripciones</div><div class="hspace"></div>
+    <div class="sechead"><div class="sectitle">Gastos fijos</div><div class="hspace"></div>
       <button class="btn sm" data-act="newrec">+ Fijo</button></div>
     ${R.length?`<div class="rows">${R.map(r=>{
-      const done=S.tx.some(t=>t.recId===r.id&&t.date.slice(0,7)===ymNow);
+      const done=fijoPagado(r, S.tx, ymNow);
+      const st=r.type==='gasto'&&r.active!==false?estadoFijo(r, todayISO(), S.tx):null;
+      const cuando=r.type==='gasto'
+        ?`vence el ${fechaCorta(fechaFijo(r.day, ymNow))} · aviso ${diasAviso(r)} día${diasAviso(r)===1?'':'s'} antes`
+        :'día '+r.day;
       return `<div class="row" data-act="editrec" data-id="${r.id}" style="${r.active===false?'opacity:.45':''}">
         <div class="rmain">
-          <div class="rtitle">${esc(r.name)} ${r.scope==='familiar'?'<span class="tag fam">Fam</span>':''} ${done?'<span class="tag ok">Registrado</span>':''}</div>
-          <div class="rsub">${esc(r.cat)} · día ${r.day} · ${esc(userName(r.owner))}</div>
+          <div class="rtitle">${esc(r.name)} ${r.scope==='familiar'?'<span class="tag fam">Fam</span>':''} ${st?etiquetaVence(st):done?'<span class="tag ok">Registrado</span>':''}</div>
+          <div class="rsub">${esc(r.cat)} · ${cuando} · ${esc(userName(r.owner))}</div>
         </div>
         <div><div class="ramt num ${r.type==='ingreso'?'pos':''}">${fmtRaw(r.amount,r.cur)}</div></div>
-        ${done?'':`<button class="btn sm rbtn" data-act="recgo" data-id="${r.id}">Registrar ${MES3[+ymNow.slice(5)-1]}</button>`}
-      </div>`}).join('')}</div>`:'<div class="empty">Sin gastos fijos cargados</div>'}
+        ${done?'':`<button class="btn sm rbtn" data-act="recgo" data-id="${r.id}">${r.type==='gasto'?'Pagado':'Registrar '+MES3[+ymNow.slice(5)-1]}</button>`}
+      </div>`}).join('')}</div>`
+      :`<div class="empty">Sin gastos fijos cargados</div>
+        <div class="help" style="margin-top:12px">Acá van el alquiler, los servicios, los impuestos y el pago de la tarjeta. Se cargan una vez y cada mes se anotan con Pagado.</div>`}
   </div>
 
   <div class="sect">
@@ -1968,16 +2092,18 @@ function tarjetaAlerta(a){
   const abrible=a.items&&a.items.length, abierta=abrible&&alAbiertas.has(a.key);
   const TOPE=12, lista=abrible?a.items.slice(0,TOPE):[];
   const accion=a.edit?`data-act="edittope" data-id="${a.edit}"`
+              :a.rec?`data-act="editrec" data-id="${a.rec}"`
               :abrible?`data-act="desplegar" data-k="${a.key}"`
               :a.ir?`data-act="go" data-v="${a.ir}"`:'';
-  return `<div class="al ${a.nivel} ${a.edit||abrible||a.ir?'tocable':''}" ${accion}>
+  return `<div class="al ${a.nivel} ${a.edit||abrible||a.ir||a.rec?'tocable':''}" ${accion}>
     <div class="top">
       <i class="luz"></i>
-      <div class="ti"><div class="tt">${esc(a.titulo)}${abrible?`<span class="chev ${abierta?'ab':''}">›</span>`:a.ir?'<span class="chev">›</span>':''}</div>
+      <div class="ti"><div class="tt">${esc(a.titulo)}${abrible?`<span class="chev ${abierta?'ab':''}">›</span>`:a.ir||a.rec?'<span class="chev">›</span>':''}</div>
         <div class="dd">${esc(a.detalle)}</div></div>
       <div class="vv num">${esc(a.valor)}</div>
     </div>
     <div class="bar"><i style="width:${Math.max(a.pct,2)}%"></i></div>
+    ${a.rec&&a.nivel!=='verde'?`<button class="btn sm" data-act="pagado" data-id="${a.rec}" style="width:100%">Pagado</button>`:''}
     ${abierta?`<div class="aldet">
       ${lista.map(t=>`<div class="alit" data-act="edittx" data-id="${t.id}">
         <div class="alit-i">
@@ -1996,6 +2122,7 @@ function tarjetaAlerta(a){
 }
 function vAlertas(){
   const A=evaluarAlertas();
+  const vence=A.filter(a=>a.grupo==='vence');
   const topes=A.filter(a=>a.grupo==='tope');
   const senales=A.filter(a=>a.grupo==='senal');
   const deuda=A.filter(a=>a.grupo==='deuda');
@@ -2014,6 +2141,12 @@ function vAlertas(){
       </div>
     </div>
   </div>
+
+  ${vence.length?`<div class="sect">
+    <div class="sechead"><div class="sectitle">Vencimientos</div></div>
+    ${vence.map(tarjetaAlerta).join('')}
+    <div class="help" style="margin-top:4px">Gastos fijos de este mes. Tocá uno para editarlo, o Pagado para anotarlo. Si el monto cambió (la tarjeta, un servicio), lo corregís antes de guardar.</div>
+  </div>`:''}
 
   <div class="sect">
     <div class="sechead"><div class="sectitle">Topes de gasto</div><div class="hspace"></div>
@@ -2135,7 +2268,7 @@ function vSet(){
     <div class="rows">
       <div class="row" data-act="go" data-v="fijos">
         <div class="rmain"><div class="rtitle">Fijos y deudas</div>
-        <div class="rsub">Servicios y suscripciones, deudas y cuotas</div></div>
+        <div class="rsub">Alquiler, servicios, impuestos, tarjetas y cuotas</div></div>
         <div class="rextra">›</div>
       </div>
       <div class="row" data-act="go" data-v="comp">
@@ -2401,33 +2534,55 @@ function formRec(id){
   const cats=[...S.settings.catG,...S.settings.catI];
   openForm({
     title:r?'Editar fijo':'Nuevo gasto fijo',
-    values:r?{...r,active:r.active===false?'no':'si'}:{type:'gasto',day:1,active:'si'},
+    values:r?{...r,active:r.active===false?'no':'si'}:{type:'gasto',day:1,active:'si',aviso:AVISO_DEF},
     del:r?del('rec',id):null, delMsg:'¿Borrar este gasto fijo? Los movimientos ya registrados quedan.',
     fields:[
       {k:'type',label:'Tipo',type:'seg',opts:[{v:'gasto',l:'Gasto fijo'},{v:'ingreso',l:'Ingreso fijo'}],def:'gasto'},
-      {k:'name',label:'Nombre',req:true,ph:'Ej: Netflix, Internet, Alquiler'},
+      {k:'name',label:'Nombre',req:true,ph:'Ej: Alquiler, EPEC, Tarjeta Visa'},
       {k:'amount',label:'Importe mensual',type:'number',step:'0.01',req:true,half:true},
-      {k:'day',label:'Día del mes',type:'number',def:1,half:true},
+      {k:'day',label:'Día del mes',type:'number',step:'1',def:1,half:true},
+      {k:'aviso',label:'Avisame (días antes)',type:'number',step:'1',def:AVISO_DEF,
+        help:'0 avisa recién el mismo día. Vacío cuenta como 3. Si el mes no tiene ese día (el 31 en noviembre), el aviso y el registro caen el último día. En un ingreso no se usa.'},
       curF(),
-      {k:'cat',label:'Categoría',type:'select',opts:cats.map(c=>({v:c,l:c})),def:'Servicios'},
+      {k:'cat',label:'Categoría',type:'select',opts:cats.map(c=>({v:c,l:c})),def:'Servicios',
+        help:'Alquiler y expensas, servicios, impuestos o el pago de la tarjeta.'},
       ownerF(),scopeF(),
       {k:'active',label:'Estado',type:'seg',opts:[{v:'si',l:'Activo'},{v:'no',l:'Pausado'}],def:'si'}
     ],
     onSave(v){
       const o={id:r?r.id:uid(),name:v.name,type:v.type,amount:Number(v.amount),cur:v.cur,
-        day:Number(v.day)||1,cat:v.cat,owner:v.owner,scope:v.scope,active:v.active!=='no'};
+        day:Math.min(31, Math.max(1, Math.round(Number(v.day))||1)),
+        aviso:diasAviso({aviso:v.aviso}),
+        cat:v.cat,owner:v.owner,scope:v.scope,active:v.active!=='no'};
       if(r)S.rec[S.rec.findIndex(x=>x.id===r.id)]=o; else S.rec.push(o);
       save();render();toast('Guardado');
     }
   });
 }
+/* Pagado: el mismo registro de siempre, pero el monto se puede corregir
+   (la tarjeta no es igual todos los meses). La fecha es la de fechaFijo,
+   así el movimiento cae el mismo día que el aviso y queda con recId. */
 function recGo(id){
   const r=S.rec.find(x=>x.id===id); if(!r)return;
   const ym=todayISO().slice(0,7);
-  const d=ym+'-'+String(Math.min(Math.max(r.day,1),28)).padStart(2,'0');
-  S.tx.push({id:uid(),date:d,type:r.type,amount:Number(r.amount),cur:r.cur,cat:r.cat,
-    note:r.name,owner:r.owner,scope:r.scope,recId:r.id});
-  save();render();toast(r.name+' registrado');
+  if(fijoPagado(r, S.tx, ym)){ toast('Ya está registrado este mes'); return; }
+  const cuando=fechaFijo(r.day, ym);
+  const gasto=r.type!=='ingreso';
+  openForm({
+    title:(gasto?'Pagado · ':'Registrar · ')+r.name,
+    ok:'Registrar',
+    values:{amount:r.amount},
+    fields:[
+      {k:'amount',label:gasto?'Monto de este mes':'Monto',type:'number',step:'0.01',req:true,
+        help:'Si este mes es distinto, cambialo. El monto habitual del fijo no se toca. Queda anotado el '+fecha(cuando)+', el día de vencimiento.'}
+    ],
+    onSave(v){
+      if(fijoPagado(r, S.tx, ym)) return ferr('Ya está registrado este mes.');
+      S.tx.push({id:uid(),date:cuando,type:r.type,amount:Number(v.amount),cur:r.cur,cat:r.cat,
+        note:r.name,owner:r.owner,scope:r.scope,recId:r.id});
+      save();render();toast(r.name+' registrado');
+    }
+  });
 }
 function formDebt(id){
   const d=id?S.debts.find(x=>x.id===id):null;
@@ -2822,7 +2977,7 @@ document.addEventListener('click',e=>{
     pinoff:()=>confirmar('¿Quitar el PIN de este dispositivo? Vas a entrar con mail y contraseña.',()=>{lsDel(DEV);render();toast('PIN quitado')}),
     install:howInstall,
     newtx:()=>formTx(), edittx:()=>formTx(id),
-    newrec:()=>formRec(), editrec:()=>formRec(id), recgo:()=>recGo(id),
+    newrec:()=>formRec(), editrec:()=>formRec(id), recgo:()=>recGo(id), pagado:()=>recGo(id),
     newdebt:()=>formDebt(), editdebt:()=>formDebt(id), paydebt:()=>payDebt(id),
     newbox:()=>formBox(), editbox:()=>formBox(id), boxmov:()=>boxMov(id,Number(b.dataset.s)),
     editcajamov:()=>formCajaMov(id),
@@ -2845,7 +3000,7 @@ document.addEventListener('click',e=>{
   if(A[a]){
     /* el pulso lo elige la acción: abrir, confirmar o simplemente tocar */
     hap(/^(del|wipe|logout|desconectar|pinoff)/.test(a)?'warn'
-       :/^(new|edit|imp|exp|conectar|addcat|chpw|minombre|install|price|boxmov)/.test(a)?'abrir':'tap');
+       :/^(new|edit|imp|exp|conectar|addcat|chpw|minombre|install|price|boxmov|recgo|pagado)/.test(a)?'abrir':'tap');
     e.preventDefault();A[a]();
   }
 });
