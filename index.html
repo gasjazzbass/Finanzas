@@ -724,13 +724,30 @@ const sinAuto=()=>S.holds.filter(h=>h.auto!==false&&!getPx(h)).map(h=>h.tk);
    Todo se guarda primero en el teléfono y después se sincroniza.
    Si no hay señal la app funciona igual y sube los cambios al volver.
    ============================================================ */
-const CLOUD='orbit_cloud', SB='orbit_sb', SNAP='orbit_snap', PULL='orbit_pull';
+const CLOUD='orbit_cloud', SB='orbit_sb', SNAP='orbit_snap', PULL='orbit_pull', SOLO='orbit_solo';
 const COLS=['tx','rec','debts','boxes','fds','holds','alertas','cajamov'];   /* colecciones que viajan */
 let sbSes=null, cloudCfg=null, syncTimer=null, syncing2=false, syncEstado='';
 
+/* Base de la familia. La clave es la pública (publishable): con eso
+   la app puede mostrar el ingreso, pero la base solo responde si el
+   mail está en orbit_invitados. La clave secreta no va acá. */
+const NUBE_URL='https://bsngvfqtcnvgcoxjrslm.supabase.co';
+const NUBE_KEY='sb_publishable_xwBBC0jDgQw2P0WSX0wDYQ_wlhvhW3R';
+function nubeEmpotrada(){
+  if(!/^https:\/\/.+\.supabase\.co$/.test(NUBE_URL)) return null;
+  if(!NUBE_KEY||NUBE_KEY.length<30) return null;
+  if(/sb_secret|service_role/i.test(NUBE_KEY)) return null;
+  return {url:NUBE_URL,key:NUBE_KEY};
+}
 function cargarNube(){
   try{cloudCfg=JSON.parse(lsGet(CLOUD))||null}catch(e){cloudCfg=null}
   try{sbSes=JSON.parse(lsGet(SB))||null}catch(e){sbSes=null}
+  if(cloudCfg&&cloudCfg.url&&cloudCfg.key) return;
+  cloudCfg=null;
+  if(lsGet(SOLO)==='si') return;
+  /* este teléfono ya tenía cuentas propias, sin nube: no lo cambio solo */
+  if(S&&S.users&&S.users.length&&S.users.every(u=>!u.hogar)) return;
+  cloudCfg=nubeEmpotrada();
 }
 const enNube=()=>!!(cloudCfg&&cloudCfg.url&&cloudCfg.key);
 const conectado=()=>enNube()&&!!(sbSes&&sbSes.refresh_token);
@@ -1033,8 +1050,9 @@ function authConectar(A){
       <button class="btn solid" data-act="doconectar">Conectar</button>
       <button class="btn ghost" data-act="cancelconectar">Volver</button>
     </div>
-    <div class="authnote">Los dos textos salen de Supabase, en Project Settings → API.
-    Se guardan solo en este teléfono.</div>
+    <div class="authnote">La app ya trae la clave pública de la base de la familia.
+    Estos dos campos son por si querés usar otro proyecto.
+    La clave secreta (secret / service_role) no va acá.</div>
   </div>`;
 }
 /* ---- login contra la base compartida ---- */
@@ -1055,7 +1073,8 @@ function authNube(A,modo){
     </div>
     <div class="authnote">
       <span id="nubeEstado">Base compartida</span><br><br>
-      <button class="btn sm ghost" data-act="desconectar" style="width:100%">Cambiar de base</button>
+      <button class="btn sm ghost" data-act="conectar" style="width:100%">Otra base</button>
+      ${lsGet(CLOUD)?'':`<button class="btn sm ghost" data-act="sololocal" style="width:100%">Solo en este teléfono</button>`}
     </div>
   </div>`;
   const lp=$('#lp'); if(lp) lp.onkeydown=e=>{if(e.key==='Enter')(alta?doAlta:doNubeLogin)()};
@@ -1159,7 +1178,7 @@ async function doConectar(){
     /* golpe de prueba: verifica la clave y que las tablas estén creadas */
     await sbFetch('/rest/v1/orbit_perfiles?select=user_id&limit=1',{anon:true});
     lsSet(CLOUD,JSON.stringify(cloudCfg));
-    lsDel(SNAP); lsDel(PULL);
+    lsDel(SOLO); lsDel(SNAP); lsDel(PULL);
     toast('Conectado'); renderAuth();
   }catch(e){
     cloudCfg=null;
@@ -1217,7 +1236,7 @@ async function doNubeLoginCon(e,p,nombre){
 }
 function desconectar(){
   confirmar('Vas a desconectar este teléfono de la base compartida. Los datos siguen en la nube y en este teléfono queda una copia.',()=>{
-    lsDel(CLOUD); lsDel(SB); lsDel(SNAP); lsDel(PULL); lsDel(SESS); lsDel(DEV);
+    lsDel(CLOUD); lsDel(SB); lsDel(SNAP); lsDel(PULL); lsDel(SESS); lsDel(DEV); lsDel(SOLO);
     cloudCfg=null; sbSes=null; me=null;
     clearInterval(window._sbLoop);
     renderAuth(); toast('Desconectado');
@@ -3001,6 +3020,7 @@ document.addEventListener('click',e=>{
   const A={
     dosetup:doSetup, dologin:doLogin, usepw:()=>{lsDel(DEV);renderAuth()},
     conectar:()=>authConectar($('#auth')),
+    sololocal:()=>{lsSet(SOLO,'si'); cloudCfg=null; sbSes=null; renderAuth()},
     cancelconectar:()=>{cloudCfg=null;renderAuth()},
     doconectar:doConectar, donubelogin:doNubeLogin, doalta:doAlta,
     domodoalta:()=>authNube($('#auth'),'alta'), domodologin:()=>authNube($('#auth')),

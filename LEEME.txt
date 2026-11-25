@@ -79,9 +79,16 @@ Hacé lo mismo en el celular del otro usuario.
 
 PRIMERA VEZ QUE LA ABRÍS
 ----------------------------------------------------------------
-Te pide crear las dos cuentas (nombre, mail y contraseña de cada uno).
+Se abre en "Ingresar", para la base compartida de la familia.
+Entrá con tu mail y contraseña, o tocá "Crear mi cuenta" si el
+mail ya está en la lista de invitados y todavía no tenés usuario.
+
 Después de entrar te ofrece armar un PIN de 4 números para no tener
 que escribir la contraseña todos los días.
+
+Si preferís que los datos queden solo en ese teléfono, en esa misma
+pantalla tocá "Solo en este teléfono". Ahí sí te pide crear las
+cuentas locales.
 
 
 SUMAR EL SEGUNDO TELÉFONO

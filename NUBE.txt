@@ -11,11 +11,16 @@ No te asustes: no toca absolutamente nada de la app de sueldos.
 Todas las tablas nuevas se llaman orbit_algo, y el script no
 modifica ninguna tabla, función ni disparador existente.
 
+La app ya trae la dirección del proyecto y la clave pública.
+En un teléfono nuevo se abre directo en "Ingresar": no hay que
+pegar nada. Lo de copiar las claves queda solo por si algún día
+cambiás de proyecto.
+
 >>> NO uses el proyecto de bucor-evaluaciones. <<<
 Ese queda intacto y reservado para el sistema de la fundación.
 
 Lo hacés vos entero, de la computadora, en unos 15 minutos.
-Samanta después solo pega dos textos en su teléfono.
+Después, en el teléfono, solo hay que entrar.
 
 
 PARTE 1 · CREAR LAS TABLAS
@@ -98,16 +103,20 @@ PARTE 3 · COPIAR LAS DOS CLAVES
     pegás por error, pero mejor ni tocarla.
 
 
-PARTE 4 · CONECTAR TU TELÉFONO
+PARTE 4 · ENTRAR EN EL TELÉFONO
 ================================================================
 
 11. Abrí la app: https://gasjazzbass.github.io/Finanzas/
 
-12. Tocá "Conectar con la base compartida".
+    La primera pantalla ya es "Ingresar". La dirección y la clave
+    pública de sueldos-bucor vienen en la app. No hace falta
+    pegarlas.
 
-13. Pegá el Project URL y la clave pública. Tocá "Conectar".
+    (Si alguna vez querés otro proyecto, tocá "Otra base" y pegá
+    ahí el Project URL y la clave pública. La que dice secret o
+    service_role no va nunca.)
 
-14. Ahora tenés dos opciones:
+12. Ahora tenés dos opciones:
 
     - Si el mail que pusiste en la lista de invitados es el mismo
       con el que entrás a la app de sueldos, ya tenés cuenta:
@@ -116,10 +125,10 @@ PARTE 4 · CONECTAR TU TELÉFONO
     - Si es otro mail, tocá "Crear mi cuenta" y poné tu nombre,
       el mail y una contraseña de 6 caracteres o más.
 
-15. Al entrar, la app sube sola todo lo que ya tenías cargado y
+13. Al entrar, la app sube sola todo lo que ya tenías cargado y
     te avisa cuántos registros subió.
 
-16. Revisá en Ajustes que tu nombre sea el correcto ("Gaspar" y no
+14. Revisá en Ajustes que tu nombre sea el correcto ("Gaspar" y no
     "gasjazzbass"). Si no lo es, tocá "Mi nombre" y cambialo: se
     corrigen también todos los gastos ya cargados a tu nombre.
 
@@ -127,23 +136,19 @@ PARTE 4 · CONECTAR TU TELÉFONO
 PARTE 5 · EL TELÉFONO DE SAMANTA
 ================================================================
 
-17. Mandale por WhatsApp:
-    - El link de la app
-    - El Project URL
-    - La clave pública
+15. Mandale por WhatsApp el link de la app.
 
-    Esos dos textos no son secretos: sin un mail de la lista de
-    invitados no abren nada. Igual, no hace falta publicarlos.
+    Ella abre el link y toca "Crear mi cuenta" (o "Ingresar", si
+    ya tiene cuenta). No hace falta pasarle la clave: la app ya
+    la trae, y es la pública. Sin un mail de la lista de invitados
+    no se ve nada.
 
-18. Ella abre el link, toca "Conectar con la base compartida",
-    pega los dos textos y toca "Crear mi cuenta".
-
-19. IMPORTANTE: que use el mismo mail que pusiste en la lista de
+16. IMPORTANTE: que use el mismo mail que pusiste en la lista de
     invitados, y que escriba su nombre igual que como figura en
     tus gastos (si cargaste cosas a nombre de "Samanta", que ponga
     "Samanta"). Así esos movimientos le quedan asignados.
 
-20. Listo. Los dos ven lo mismo.
+17. Listo. Los dos ven lo mismo.
 
 
 POR QUÉ ESTO NO AFECTA A LA APP DE SUELDOS
