@@ -444,6 +444,7 @@ mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;bor
           <div class="hmark">ORBIT</div>
           <div class="hspace"></div>
           <button class="iconbtn curbtn num" data-act="curtog" id="curBtn">$ ARS</button>
+          <button class="iconbtn" data-act="go" data-v="rep" title="Reportes" id="repBtn"></button>
           <button class="iconbtn" data-act="go" data-v="alertas" title="Alertas" id="alBtn"></button>
           <button class="iconbtn" data-act="go" data-v="set" title="Ajustes" id="setBtn"></button>
         </div>
@@ -505,6 +506,7 @@ const IC={
   set:'<path d="M12.3 2.5h-.6a1.9 1.9 0 0 0-1.9 1.9v.2a1.6 1.6 0 0 1-.8 1.4l-.5.3a1.6 1.6 0 0 1-1.6 0l-.2-.1a1.9 1.9 0 0 0-2.6.7l-.3.5a1.9 1.9 0 0 0 .7 2.6l.2.1a1.6 1.6 0 0 1 .8 1.4v.6a1.6 1.6 0 0 1-.8 1.4l-.2.1a1.9 1.9 0 0 0-.7 2.6l.3.5a1.9 1.9 0 0 0 2.6.7l.2-.1a1.6 1.6 0 0 1 1.6 0l.5.3a1.6 1.6 0 0 1 .8 1.4v.2a1.9 1.9 0 0 0 1.9 1.9h.6a1.9 1.9 0 0 0 1.9-1.9v-.2a1.6 1.6 0 0 1 .8-1.4l.5-.3a1.6 1.6 0 0 1 1.6 0l.2.1a1.9 1.9 0 0 0 2.6-.7l.3-.5a1.9 1.9 0 0 0-.7-2.6l-.2-.1a1.6 1.6 0 0 1-.8-1.4v-.6a1.6 1.6 0 0 1 .8-1.4l.2-.1a1.9 1.9 0 0 0 .7-2.6l-.3-.5a1.9 1.9 0 0 0-2.6-.7l-.2.1a1.6 1.6 0 0 1-1.6 0l-.5-.3a1.6 1.6 0 0 1-.8-1.4v-.2a1.9 1.9 0 0 0-1.9-1.9z"/><circle cx="12" cy="12" r="2.8"/>',
   lupa:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.4 15.4 21 21"/>',
   campana:'<path d="M18 8.5a6 6 0 1 0-12 0c0 6-2.5 7.5-2.5 7.5h17S18 14.5 18 8.5z"/><path d="M13.7 19.5a2 2 0 0 1-3.4 0"/>',
+  rep:'<path d="M6 3.5h8.5L19 8v12.5H6z"/><path d="M14 3.5V8h5M9 12h6M9 16h4"/>',
   sun:'<circle cx="12" cy="12" r="4.5"/><path d="M12 1.5v2.5M12 20v2.5M1.5 12h2.5M20 12h2.5M4.5 4.5l1.8 1.8M17.7 17.7l1.8 1.8M19.5 4.5l-1.8 1.8M6.3 17.7l-1.8 1.8"/>',
   moon:'<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/>',
   auto:'<rect x="2.5" y="4" width="19" height="13" rx="1"/><path d="M8 21h8M12 17v4"/>'
@@ -513,7 +515,7 @@ const svg=(p,w=1.4)=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
 
 let S=null, me=null, view='dash', cur='ARS', scope='all';
 let mvYM=new Date().toISOString().slice(0,7), dashPer='m', q='', qcat='', qbox='';
-let compYM=new Date().toISOString().slice(0,7), compPor='cat', compIgual=true;
+let repYM=null;   /* null = lista de meses; si no, el mes cerrado abierto */
 const alAbiertas=new Set();   /* alertas desplegadas */
 let deferredPrompt=null, hiddenAt=0;
 
@@ -1274,12 +1276,13 @@ function askPin(){
    SHELL
    ============================================================ */
 /* La barra lleva cinco: Resumen, Movimientos, Ahorros, Inversión y
-   Gastos fijos. Alertas salió de la barra y quedó en la campana,
-   al lado del engranaje. */
+   Gastos fijos. Alertas está en la campana y Reportes en el ícono
+   de al lado, junto al engranaje. */
 const VIEWS=[['dash','Resumen','dash'],['mov','Movim.','mov'],['ahorro','Ahorros','ahorro'],
              ['inv','Inversión','inv'],['fijos','Gastos fijos','fijos']];
 function boot(){
   $('#auth').classList.add('hide'); $('#app').classList.remove('hide');
+  $('#repBtn').innerHTML=svg(IC.rep);
   $('#alBtn').innerHTML=svg(IC.campana);
   $('#setBtn').innerHTML=svg(IC.set);
   $('#nav').innerHTML=VIEWS.map(([k,l,i])=>`<button data-view="${k}">${svg(IC[i],1.5)}<span>${l}</span></button>`).join('');
@@ -1295,6 +1298,7 @@ function render(keepScroll){
   const foco=(act&&act.id==='q')?act.selectionStart:null;
   $('#nav').querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.view===view));
   $('#setBtn').classList.toggle('on',view==='set');
+  const rp=$('#repBtn'); if(rp) rp.classList.toggle('on',view==='rep'||view==='comp');
   /* el puntito rojo vive en la campana, al lado de Ajustes */
   const nuevas=alertasNuevas().length;
   const al=$('#alBtn');
@@ -1306,7 +1310,7 @@ function render(keepScroll){
   $('#chips').querySelectorAll('.chip').forEach(b=>b.classList.toggle('on',b.dataset.scope===scope));
   $('#curBtn').textContent=cur==='ARS'?'$ ARS':'US$';
   $('#main').innerHTML=({dash:vDash,mov:vMov,fijos:vFijos,ahorro:vAhorro,inv:vInv,
-    set:vSet,alertas:vAlertas,comp:vComp})[view]();
+    set:vSet,alertas:vAlertas,rep:vReportes,comp:vReportes})[view]();
   $('#fab').classList.toggle('hide',!(view==='dash'||view==='mov'));
   window.scrollTo({top:keepScroll?y:0});
   if(foco!==null){const n=$('#q');if(n){n.focus();try{n.setSelectionRange(foco,foco)}catch(e){}}}
@@ -1464,7 +1468,7 @@ function evaluarAlertas(){
   if(sn.ritmo){
     const ant=shiftYM(ym,-1), antes=gastoHasta(ant,dia), ahora=gastoHasta(ym,dia);
     const dif=antes>0?(ahora-antes)/antes*100:0;
-    A.push({grupo:'senal', ir:'comp', nivel:antes<=0?'verde':dif>=30?'rojo':dif>0?'amarillo':'verde',
+    A.push({grupo:'senal', ir:'rep', nivel:antes<=0?'verde':dif>=30?'rojo':dif>0?'amarillo':'verde',
       titulo:'Ritmo contra el mes pasado',
       valor:fmt(ahora)+' vs '+fmt(antes),
       detalle:antes<=0?'Sin gastos el mes pasado para comparar'
@@ -1640,14 +1644,6 @@ function vDash(){
   </div>
 
   <div class="sect"><div class="panel"><h3>Ingresos vs gastos · 6 meses</h3>${barsChart(ser)}</div></div>
-
-  <div class="sect">
-    <div class="rows"><div class="row" data-act="go" data-v="comp">
-      <div class="rmain"><div class="rtitle">Mes contra mes</div>
-        <div class="rsub">En qué gastaste más y en qué menos que el mes pasado</div></div>
-      <div class="rextra">›</div>
-    </div></div>
-  </div>
   <div class="sect"><div class="panel"><h3>Gastos por categoría</h3>${cats.length?donut(cats):'<div class="empty" style="border:0">Sin gastos en el período</div>'}</div></div>
   <div class="sect"><div class="panel"><h3>Flujo acumulado · 12 meses</h3>${lineChart(acc)}</div></div>
 
@@ -1996,9 +1992,14 @@ function vInv(){
 }
 
 /* ============================================================
-   MES CONTRA MES
+   REPORTES
+   Un mes cerrado es cualquiera que ya terminó: no hay que cerrarlo
+   a mano. El mes en curso no entra. Cada reporte se compara con el
+   mes anterior, con el mismo filtro Todo / Míos / Familiar y la
+   misma cotización que el resto de la app (todo se pasa a pesos y
+   después se muestra en la moneda elegida arriba).
+   compararMes es la cuenta que usaba Mes contra mes.
    ============================================================ */
-const ETIQ={cat:'Categoría',owner:'Quién',scope:'Ámbito'};
 function compararMes(ym,por,hastaDia){
   const ant=shiftYM(ym,-1);
   const corte=t=>hastaDia?(+t.date.slice(8)<=hastaDia):true;
@@ -2016,77 +2017,153 @@ function compararMes(ym,por,hastaDia){
   const totA=filas.reduce((s,f)=>s+f.act,0), totB=filas.reduce((s,f)=>s+f.prev,0);
   return {filas,totA,totB,ant,max:Math.max(...filas.map(f=>Math.max(f.act,f.prev)),1)};
 }
-function vComp(){
-  const hoy=todayISO(), esActual=compYM===hoy.slice(0,7);
-  const dia=+hoy.slice(8);
-  const parcial=esActual&&compIgual;
-  const C=compararMes(compYM,compPor,parcial?dia:null);
-  const dif=C.totA-C.totB, pct=C.totB>0?dif/C.totB*100:null;
-  const top=C.filas.filter(f=>f.dif>0)[0], baj=C.filas.filter(f=>f.dif<0)[0];
-
-  const chip=(k,l)=>`<button class="chip ${compPor===k?'on':''}" data-act="compor" data-k="${k}">${l}</button>`;
-  const barra=(v,color)=>`<div class="bar" style="height:3px"><i style="width:${Math.max(v/C.max*100,1)}%;background:${color}"></i></div>`;
-
+function totalesMes(ym){
+  const l=F('tx').filter(t=>t.date&&t.date.slice(0,7)===ym);
+  const ing=sumTx(l,'ingreso'), gas=sumTx(l,'gasto');
+  return {ing,gas,bal:ing-gas,tasa:ing>0?(ing-gas)/ing*100:null};
+}
+/* Meses con algún movimiento que ya terminaron. El más nuevo primero. */
+function mesesCerrados(){
+  const este=todayISO().slice(0,7), v=new Set();
+  F('tx').forEach(t=>{if(t.date&&t.date.slice(0,7)<este) v.add(t.date.slice(0,7))});
+  return [...v].sort((a,b)=>b.localeCompare(a));
+}
+function txtContra(d,base){
+  if(d===0) return 'Igual que el mes anterior';
+  const monto=(d>0?'+':'−')+fmt(Math.abs(d));
+  /* base negativo (un mes que cerró en rojo) no da un porcentaje claro */
+  if(!(base>0)) return monto+(base===0?' · no hubo el mes anterior':'');
+  const p=Math.round(d/base*100);
+  return monto+' · '+(p>=0?'+':'')+p+'%';
+}
+/* Lo pagado de cada fijo (movimientos con Pagado, que llevan recId).
+   Si en un mes no hay movimiento, queda sin registro: no es cero. */
+function compararFijos(ym,ant){
+  const sum=m=>{
+    const o={};
+    F('tx').forEach(t=>{
+      if(t.type!=='gasto'||!t.recId||!t.date||t.date.slice(0,7)!==m) return;
+      o[t.recId]=(o[t.recId]||0)+toARS(t.amount,t.cur);
+    });
+    return o;
+  };
+  const A=sum(ym), B=sum(ant);
+  const nombre=id=>{
+    const r=S.rec.find(x=>x.id===id);
+    if(r) return r.name;
+    const t=S.tx.find(x=>x.recId===id&&x.note);
+    return t?t.note:'Fijo borrado';
+  };
+  const ids=new Set([
+    ...F('rec').filter(r=>r.type==='gasto').map(r=>r.id),
+    ...Object.keys(A), ...Object.keys(B)
+  ]);
+  const filas=[...ids].map(id=>{
+    const tieneA=Object.prototype.hasOwnProperty.call(A,id);
+    const tieneB=Object.prototype.hasOwnProperty.call(B,id);
+    const a=tieneA?A[id]:0, b=tieneB?B[id]:0;
+    return {id,nombre:nombre(id),a,b,tieneA,tieneB,dif:a-b};
+  });
+  const grupo=f=>!f.tieneA&&!f.tieneB?3:f.dif>0?0:f.dif<0?2:1;
+  filas.sort((x,y)=>grupo(x)-grupo(y)||Math.abs(y.dif)-Math.abs(x.dif)||x.nombre.localeCompare(y.nombre,'es'));
+  return filas;
+}
+function filaCat(f,max){
+  const ancho=v=>Math.max(max?v/max*100:0, v?1:0);
+  return `<div class="row" style="cursor:default">
+    <div class="rmain" style="grid-column:1/-1">
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline">
+        <div class="rtitle">${esc(f.nombre)}</div>
+        <div class="ramt num ${f.dif>0?'neg':'pos'}">${f.dif>0?'+':'−'}${fmt(Math.abs(f.dif))}</div>
+      </div>
+      <div class="rsub" style="display:flex;justify-content:space-between;gap:10px">
+        <span>${fmt(f.act)} · antes ${fmt(f.prev)}</span>
+        <span>${f.pct===null?'no hubo el mes pasado':(f.pct>=0?'+':'')+Math.round(f.pct)+'%'}</span>
+      </div>
+      <div style="margin-top:8px;display:flex;flex-direction:column;gap:4px">
+        <div class="bar" style="height:3px"><i style="width:${ancho(f.act)}%;background:${f.dif>0?'var(--neg)':'var(--pos)'}"></i></div>
+        <div class="bar" style="height:3px"><i style="width:${ancho(f.prev)}%;background:var(--dim2)"></i></div>
+      </div>
+    </div>
+  </div>`;
+}
+function listaReportes(){
+  const ms=mesesCerrados();
+  return `
+  <div class="sect">
+    <div class="sechead"><div class="sectitle">Meses cerrados</div></div>
+    <div class="help" style="margin:-6px 0 14px">Cuando un mes termina, queda acá para verlo contra el anterior. El mes en curso todavía no.</div>
+    ${ms.length?`<div class="rows">${ms.map(ym=>{
+      const d=totalesMes(ym).gas-totalesMes(shiftYM(ym,-1)).gas;
+      return `<div class="row" data-act="repir" data-ym="${ym}">
+        <div class="rmain">
+          <div class="rtitle">${ymLbl(ym)}</div>
+          <div class="rsub">contra ${ymLbl(shiftYM(ym,-1))}</div>
+        </div>
+        <div class="ramt num ${d>0?'neg':d<0?'pos':''}">${d===0?'igual':(d>0?'+':'−')+fmt(Math.abs(d))}</div>
+      </div>`;
+    }).join('')}</div>`
+    :'<div class="empty">Todavía no hay un mes cerrado</div>'}
+  </div>`;
+}
+function detalleReporte(ym){
+  const ant=shiftYM(ym,-1);
+  const C=compararMes(ym,'cat',null);
+  const A=totalesMes(ym), B=totalesMes(ant);
+  const suben=C.filas.filter(f=>f.dif>0), bajan=C.filas.filter(f=>f.dif<0);
+  const fijos=compararFijos(ym,ant);
+  const subF=fijos.filter(f=>f.dif>0), resto=fijos.filter(f=>f.dif<=0);
+  const lado=(tiene,v)=>tiene?fmt(v):'sin registro';
+  const filaF=f=>{
+    const vacio=!f.tieneA&&!f.tieneB;
+    const dif=vacio||!f.tieneA?'sin registro'
+      :!f.tieneB?'+'+fmt(f.a)
+      :f.dif===0?'igual'
+      :(f.dif>0?'+':'−')+fmt(Math.abs(f.dif))+' · '+(f.dif>=0?'+':'')+Math.round(f.dif/f.b*100)+'%';
+    return `<div class="row" style="cursor:default">
+      <div class="rmain">
+        <div class="rtitle">${esc(f.nombre)}</div>
+        <div class="rsub">este mes ${lado(f.tieneA,f.a)} · antes ${lado(f.tieneB,f.b)}</div>
+      </div>
+      <div><div class="ramt num ${!f.tieneA?'dim':(!f.tieneB||f.dif>0)?'neg':f.dif<0?'pos':'dim'}">${dif}</div></div>
+    </div>`;
+  };
+  const bloque=(titulo,filas,vacio)=>`<div class="sect">
+    <div class="sechead"><div class="sectitle">${titulo}</div></div>
+    ${filas.length?`<div class="rows">${filas.map(f=>filaCat(f,C.max)).join('')}</div>`
+      :`<div class="help">${vacio}</div>`}
+  </div>`;
+  const tasa=A.tasa==null?'Sin ingresos este mes':Math.round(A.tasa)+'% de lo que entró';
+  const tasaAnt=B.tasa==null?'el mes anterior no tuvo ingresos':'antes '+Math.round(B.tasa)+'%';
   return `
   <div class="sect">
     <div class="sechead">
-      <div class="mnav">
-        <button class="iconbtn" data-act="compmv" data-d="-1">‹</button>
-        <div class="mlbl">${ymLbl(compYM)}</div>
-        <button class="iconbtn" data-act="compmv" data-d="1">›</button>
-      </div>
+      <button class="iconbtn" data-act="repir" title="Volver">‹</button>
+      <div class="sectitle">${ymLbl(ym)}</div>
       <div class="hspace"></div>
     </div>
-    ${esActual?`<div class="chipsrow">
-      <button class="chip ${compIgual?'on':''}" data-act="compmodo" data-v="igual">Hasta hoy (día ${dia})</button>
-      <button class="chip ${compIgual?'':'on'}" data-act="compmodo" data-v="full">Mes completo</button>
-    </div>`:''}
-    <div class="grid g2" style="margin-bottom:1px">
-      <div class="cell wide">
-        <div class="klbl">${dif>=0?'Gastaste más que en':'Gastaste menos que en'} ${ymLbl(C.ant).split(' ')[0]}</div>
-        <div class="kval big num ${dif>0?'neg':'pos'}">${dif>=0?'+':'−'}${fmt(Math.abs(dif))}</div>
-        <div class="ksub">${pct===null?'Sin gastos el mes anterior para comparar'
-          :(dif>=0?'+':'')+Math.round(pct)+'% · '+fmt(C.totA)+' contra '+fmt(C.totB)}
-          ${parcial?'<br>Comparando los dos meses hasta el día '+dia+', para que sea justo.':''}</div>
-      </div>
-    </div>
+    <div class="help" style="margin:-6px 0 14px">Contra ${ymLbl(ant)}. Rojo es más gasto que el mes anterior; verde, menos.</div>
     <div class="grid g2">
-      <div class="cell"><div class="klbl">Lo que más subió</div>
-        <div class="kval num ${top?'neg':''}">${top?'+'+fmt(top.dif):'—'}</div>
-        <div class="ksub">${top?esc(top.nombre):'Nada subió'}</div></div>
-      <div class="cell"><div class="klbl">Lo que más bajó</div>
-        <div class="kval num ${baj?'pos':''}">${baj?'−'+fmt(Math.abs(baj.dif)):'—'}</div>
-        <div class="ksub">${baj?esc(baj.nombre):'Nada bajó'}</div></div>
+      <div class="cell"><div class="klbl">Gastaste</div><div class="kval num">${fmt(A.gas)}</div>
+        <div class="ksub">${txtContra(A.gas-B.gas,B.gas)}</div></div>
+      <div class="cell"><div class="klbl">Entró</div><div class="kval num">${fmt(A.ing)}</div>
+        <div class="ksub">${txtContra(A.ing-B.ing,B.ing)}</div></div>
+      <div class="cell wide"><div class="klbl">Ahorro real</div>
+        <div class="kval num ${A.bal>=0?'pos':'neg'}">${fmt(A.bal)}</div>
+        <div class="ksub">${tasa} · ${tasaAnt}<br>${txtContra(A.bal-B.bal,B.bal)}</div></div>
     </div>
   </div>
-
+  ${bloque('Dónde subió',suben,'Ninguna categoría subió.')}
+  ${bloque('Dónde bajó',bajan,'Ninguna categoría bajó.')}
+  ${C.filas.length?`<div class="help" style="margin:-18px 0 22px">La barra de arriba es ${ymLbl(ym)} y la de abajo ${ymLbl(ant)}.</div>`:''}
   <div class="sect">
-    <div class="sechead"><div class="sectitle">Comparar por</div></div>
-    <div class="chipsrow">${chip('cat','Categoría')}${chip('owner','Quién')}${chip('scope','Ámbito')}</div>
-    ${C.filas.length?`<div class="rows">
-      ${C.filas.map(f=>`<div class="row" style="cursor:default">
-        <div class="rmain" style="grid-column:1/-1">
-          <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline">
-            <div class="rtitle">${esc(f.nombre)}</div>
-            <div class="ramt num ${f.dif>0?'neg':f.dif<0?'pos':'dim'}">
-              ${f.dif===0?'igual':(f.dif>0?'+':'−')+fmt(Math.abs(f.dif))}</div>
-          </div>
-          <div class="rsub" style="display:flex;justify-content:space-between;gap:10px">
-            <span>${fmt(f.act)} · antes ${fmt(f.prev)}</span>
-            <span>${f.pct===null?(parcial?'no hubo hasta el día '+dia:'no hubo el mes pasado')
-                   :f.prev===0?'':(f.pct>=0?'+':'')+Math.round(f.pct)+'%'}</span>
-          </div>
-          <div style="margin-top:8px;display:flex;flex-direction:column;gap:4px">
-            ${barra(f.act,f.dif>0?'var(--neg)':'var(--pos)')}
-            ${barra(f.prev,'var(--dim2)')}
-          </div>
-        </div>
-      </div>`).join('')}</div>
-      <div class="help" style="margin-top:12px">La barra de arriba es ${ymLbl(compYM)} y la de abajo ${ymLbl(C.ant)}.
-      Rojo significa que gastaste más que el mes anterior; verde, menos.</div>`
-    :`<div class="empty">Sin gastos para comparar</div>`}
+    <div class="sechead"><div class="sectitle">Gastos fijos</div></div>
+    ${fijos.length?`<div class="rows">${[...subF,...resto].map(filaF).join('')}</div>
+      <div class="help" style="margin-top:12px">Solo entran los fijos anotados con Pagado. Si un mes no tiene ese registro, dice sin registro: no es que haya salido cero.</div>`
+      :'<div class="empty">Sin gastos fijos</div>'}
   </div>`;
 }
+function vReportes(){ return repYM?detalleReporte(repYM):listaReportes(); }
 
 /* ============================================================
    PANTALLA DE ALERTAS
@@ -2264,17 +2341,6 @@ function vSet(){
       <h3>Instalar</h3>
       <div class="help" style="margin:0 0 14px">Agregala a la pantalla de inicio para abrirla como una app, sin la barra del navegador.</div>
       <button class="btn sm" data-act="install">Cómo instalarla</button></div>`}
-  </div>
-
-  <div class="sect">
-    <div class="sechead"><div class="sectitle">Otras pantallas</div></div>
-    <div class="rows">
-      <div class="row" data-act="go" data-v="comp">
-        <div class="rmain"><div class="rtitle">Mes contra mes</div>
-        <div class="rsub">Comparar los gastos con el mes anterior</div></div>
-        <div class="rextra">›</div>
-      </div>
-    </div>
   </div>
 
   <div class="sect">
@@ -2948,7 +3014,11 @@ document.addEventListener('click',e=>{
         try{ await cambiarNombre(n) }catch(e){ return ferr(e.message) }
         render(); toast('Listo');
       }}),
-    logout, go:()=>{view=b.dataset.v;if(view==='alertas')marcarVistas();render()},
+    logout, go:()=>{
+      const dest=b.dataset.v==='comp'?'rep':b.dataset.v;
+      if(dest==='rep') repYM=null;
+      view=dest; if(view==='alertas')marcarVistas(); render();
+    },
     curtog:()=>{cur=cur==='ARS'?'USD':'ARS';render()},
     per:()=>{dashPer=b.dataset.p;render()},
     mv:()=>{mvYM=shiftYM(mvYM,Number(b.dataset.d));render()},
@@ -2956,9 +3026,7 @@ document.addEventListener('click',e=>{
     cat:()=>{const c=b.dataset.c||''; qcat=(qcat===c?'':c); pintarResultados()},
     newtope:()=>formTope(), edittope:()=>formTope(id),
     desplegar:()=>{const k=b.dataset.k; alAbiertas.has(k)?alAbiertas.delete(k):alAbiertas.add(k); render(true)},
-    compmv:()=>{compYM=shiftYM(compYM,Number(b.dataset.d));render()},
-    compor:()=>{compPor=b.dataset.k;render(true)},
-    compmodo:()=>{compIgual=b.dataset.v==='igual';render(true)},
+    repir:()=>{repYM=b.dataset.ym||null;render()},
     param:()=>formParam(b.dataset.k),
     senal:()=>{
       const k=b.dataset.k, sn=S.settings.senales;
